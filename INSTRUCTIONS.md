@@ -315,18 +315,47 @@ When the report has a title block above the headers, set `header_row` to the
 
 ## 9. A typical workflow
 
-1. Export GR2 and W10 from the ERP into `data/input/`.
-2. Update the markup list if the category percentages changed.
-3. `markup validate` — confirms the config still makes sense.
-4. `markup run --period 90 --method weighted_average --dry-run` — check the
-   counts before producing a file.
-5. `markup run --period 90 --method weighted_average` — writes the workbook.
-6. Open **Exceptions** first. Clear or accept each row.
-7. Upload the **Price Upload** sheet to the ERP.
-8. Keep the workbook: **Run Summary** records exactly which parameters produced
-   those prices.
+1. Export GR2 and W10 from the ERP and save them into `data/input/` as
+   **`GR2.xlsx`** and **`W10.xlsx`**. Add `markup_list.xlsx`, and
+   `sale_list.xlsx` if you use one.
+2. `markup check` — confirms each file parses and every required column mapped.
+   Fix any header spelling it reports in `config/column_mapping.yaml`.
+3. `markup update` — prices everything and writes the workbook.
+4. `markup report` — summary, category rollup, and a diff against your last run.
+5. Open **Exceptions** first. Clear or accept each row.
+6. Upload the **Price Upload** sheet to the ERP.
+7. Move this month's exports into `data/input/archive/` so next month starts clean.
 
-### Comparing scenarios
+Each workbook carries its own **Run Summary** sheet, so there is never any doubt
+about which parameters produced which prices.
+
+### Changing parameters for one run only
+
+```bash
+markup update --period 30
+markup update --method fifo --period 60
+markup update --as-of 2026-06-30        # reproduce a month-end
+```
+
+`config.yaml` stays the team's agreed baseline; the flags apply to that run only.
+
+### Run history
+
+`markup update` snapshots every run into `data/output/history/` — the priced
+detail plus the parameters that produced it. That is what makes comparison
+possible.
+
+```bash
+markup runs                              # what has been recorded
+markup report                            # latest vs the one before it
+markup report --against 20260731_090000_001   # latest vs a specific run
+markup report --group-by department      # roll up by something else
+markup update --keep-history 36          # retain more snapshots (default 24)
+```
+
+Deleting `data/output/history/` is safe — it only costs you the comparison.
+
+### Comparing scenarios side by side
 
 ```bash
 markup run --method fifo             --out data/output/scenario_fifo.xlsx
@@ -334,10 +363,8 @@ markup run --method lifo             --out data/output/scenario_lifo.xlsx
 markup run --method weighted_average --out data/output/scenario_wavg.xlsx
 ```
 
-Then compare the Detail sheets. Because each file carries its own Run Summary,
-there is never any doubt about which assumptions produced which prices.
-
----
+`run` takes explicit paths and does **not** record history, so scenario testing
+never pollutes the month-to-month comparison. Use `update` for real runs.
 
 ## 10. Extending the engine
 

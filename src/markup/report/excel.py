@@ -34,8 +34,22 @@ MONEY_COLS = {
     "unit_cost", "raw_price", "suggested_price", "parallel_price", "current_price",
     "price_change", "min_line_cost", "max_line_cost", "effective_cost", "Sale Price",
     "freight", "duty", "other_landed",
+    "unit_cost_prev", "suggested_price_prev", "cost_delta", "price_delta",
+    "avg_cost", "avg_current_price", "avg_new_price",
 }
-PCT_COLS = {"markup_pct", "margin_pct", "change_pct", "min_margin_pct"}
+PCT_COLS = {
+    "markup_pct", "margin_pct", "change_pct", "min_margin_pct",
+    "price_delta_pct", "markup_pct_prev", "avg_markup_pct", "avg_margin_pct",
+    "avg_change_pct",
+}
+
+REPORT_TITLES = {
+    "summary": "Summary",
+    "movers": "Biggest Movers",
+    "category": "By Category",
+    "comparison": "vs Previous Run",
+    "comparison_summary": "Comparison Summary",
+}
 
 SHEET_TITLES = {
     "price_upload": "Price Upload",
@@ -83,6 +97,22 @@ def write_workbook(result: RunResult, cfg: AppConfig, path: str | Path | None = 
             _style(writer.book[title[:31]], df, cfg, key)
 
     log.info("Workbook written: %s", path)
+    return path
+
+
+def write_report_workbook(views: dict, cfg: AppConfig, path: Path) -> Path:
+    """Write the analysis workbook produced by ``markup report``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(path, engine="openpyxl", datetime_format="yyyy-mm-dd") as writer:
+        for key, df in views.items():
+            if df is None:
+                continue
+            title = REPORT_TITLES.get(key, key)[:31]
+            (df if not df.empty else pd.DataFrame({"(no rows)": []})).to_excel(
+                writer, sheet_name=title, index=False
+            )
+            _style(writer.book[title], df, cfg, "run_summary" if "summary" in key else key)
+    log.info("Report written: %s", path)
     return path
 
 

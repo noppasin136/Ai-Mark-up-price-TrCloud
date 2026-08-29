@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- `markup check` — validates `data/input/` and reports column-mapping problems
+  before anything is priced
+- `markup update` — the everyday command: finds the ERP files by their standard
+  names, prices them, writes the workbook, snapshots the run
+- `markup report` — run summary, biggest movers, category rollup, and a
+  SKU-level diff against the previous run
+- `markup runs` — lists recorded runs
+- Run history in `data/output/history/`, with automatic pruning
+- `data/input/` drop folder with naming instructions and an `archive/` subfolder
+
 ## 0.1.0
 
 Initial framework.

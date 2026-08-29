@@ -28,7 +28,9 @@ The workbook lands in `data/output/`.
 
 ## Inputs
 
-Drop the ERP exports into `data/input/`. Header names are matched through
+Drop the ERP exports into **`data/input/`** using the standard names below —
+that folder has its own [PUT_ERP_FILES_HERE.md](data/input/PUT_ERP_FILES_HERE.md)
+with the same list. Then run `markup check` to confirm they parse. Header names are matched through
 `config/column_mapping.yaml`, so no renaming in Excel is needed — add your real
 header spelling to the candidate list and the engine finds it.
 
@@ -40,6 +42,9 @@ header spelling to the candidate list and the engine finds it.
 | `sale_list.xlsx` *(optional)* | Which SKUs to price and in which unit | SKU |
 
 ## Output
+
+`markup update` writes the pricing workbook; `markup report` writes a separate
+analysis workbook (Summary, Biggest Movers, By Category, vs Previous Run).
 
 | Sheet | Contents |
 |---|---|
@@ -53,12 +58,27 @@ Rows that trip a blocking guardrail never reach the Price Upload sheet.
 
 ## Commands
 
+Everyday use is two commands:
+
 ```bash
-markup run                          # use config.yaml as-is
-markup run --period 30 --method fifo    # override for one run
-markup run --dry-run                # compute and summarise, write nothing
-markup validate                     # check config.yaml for contradictions
-markup methods                      # list costing methods and rounding rules
+markup check      # is data/input/ ready? which columns mapped?
+markup update     # price everything, write the workbook, record the run
+markup report     # summary, category rollup, and a diff vs the previous run
+```
+
+`update` finds the ERP files by their standard names in `data/input/`, so no
+paths are needed. Every run is snapshotted, which is what lets `report` compare
+this month against last month.
+
+Supporting commands:
+
+```bash
+markup runs                             # list recorded runs
+markup validate                         # check config.yaml for contradictions
+markup methods                          # list costing methods and rounding rules
+markup update --period 30 --method fifo # override parameters for one run
+markup report --against 20260731_090000_001  # compare against a specific run
+markup run --gr2 ... --w10 ...          # explicit paths, no history recorded
 ```
 
 `python -m markup <command>` works identically if you skip `pip install -e .`.
