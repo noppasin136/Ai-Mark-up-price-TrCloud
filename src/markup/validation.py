@@ -24,6 +24,13 @@ FLAG_CATALOG: dict[str, tuple[str, bool]] = {
     "BELOW_MIN_CHANGE": ("Change is too small to be worth republishing", False),
     "MISSING_IN_W10": ("SKU is in the sale list but absent from W10", True),
     "BAD_CONVERSION": ("Parallel unit present but conversion factor is missing or 1", False),
+    "UNIT_UNVERIFIED": (
+        "Sale unit and receipt unit differ and the conversion has not been reviewed yet "
+        "— decide it in config/unit_review.xlsx", True,
+    ),
+    "UNIT_EXCLUDED": ("Excluded by a decision in config/unit_review.xlsx", True),
+    "UNIT_CORRECTED": ("Receipt unit re-read under an approved correction", False),
+    "UNKNOWN_SALE_UNIT": ("Sale unit is not listed for this SKU in W10", True),
 }
 
 BLOCKING = {code for code, (_, blocks) in FLAG_CATALOG.items() if blocks}
@@ -39,6 +46,11 @@ def apply_guardrails(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
             df.at[idx, "flags"].append(code)
 
     flag(df["unit_cost"].isna(), "NO_COST")
+    if "unit_status" in df.columns:
+        flag(df["unit_status"] == "unverified", "UNIT_UNVERIFIED")
+        flag(df["unit_status"] == "excluded", "UNIT_EXCLUDED")
+        flag(df["unit_status"] == "corrected", "UNIT_CORRECTED")
+        flag(df["unit_status"] == "unknown_unit", "UNKNOWN_SALE_UNIT")
     if "markup_source" in df.columns:
         flag(df["markup_source"] == "default", "NO_MARKUP_RULE")
     flag(df["current_price"].isna(), "NO_CURRENT_PRICE")
@@ -54,8 +66,6 @@ def apply_guardrails(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
         flag(movable & (df["change_pct"] < 0), "PRICE_DECREASE")
     flag(movable & (df["change_pct"].abs() < cfg.min_change_pct), "BELOW_MIN_CHANGE")
 
-    if cfg.parallel_enabled and "parallel_uom" in df.columns:
-        flag(df["parallel_uom"].notna() & (df["conversion_factor"].fillna(1) == 1), "BAD_CONVERSION")
 
     if cfg.clamp:
         _clamp(df, cfg)

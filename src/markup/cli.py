@@ -14,7 +14,7 @@ from pathlib import Path
 
 import click
 
-from . import analysis, history
+from . import analysis, history, unit_review
 from .config import AppConfig, ConfigError
 from .costing import available as costing_methods
 from .io.loaders import _read_any
@@ -33,17 +33,42 @@ INPUT_EXTS = (".xlsx", ".xls", ".xlsm", ".csv")
 
 
 def _find_input(cfg: AppConfig, dataset: str) -> Path | None:
-    """Locate an input by its default name, tolerating any supported extension."""
+    """Locate an input file in data/input/.
+
+    ERP exports arrive with long descriptive names — GR2 comes out as
+    ``GR2_รายงานใบรับสินค้าแสดงต้นทุน_บริษัท_....xlsx`` — so matching is by
+    prefix, not by exact filename. Nothing has to be renamed after export.
+
+    Order: exact stem, then case-insensitive stem, then anything whose name
+    starts with the dataset's prefix. When several match, the most recently
+    modified wins and the rest are named in the log.
+    """
     stem = Path(DEFAULT_INPUTS[dataset]).stem
     folder = cfg.resolve("data/input")
-    for ext in INPUT_EXTS:
-        candidate = folder / f"{stem}{ext}"
-        if candidate.exists():
-            return candidate
-    # last resort: a case-insensitive stem match
-    for candidate in folder.glob("*"):
-        if candidate.suffix.lower() in INPUT_EXTS and candidate.stem.lower() == stem.lower():
-            return candidate
+    if not folder.exists():
+        return None
+
+    candidates = [
+        p for p in folder.iterdir()
+        if p.is_file() and p.suffix.lower() in INPUT_EXTS and not p.name.startswith("~$")
+    ]
+
+    for match in (
+        [p for p in candidates if p.stem == stem],
+        [p for p in candidates if p.stem.lower() == stem.lower()],
+        [p for p in candidates if p.stem.lower().startswith(stem.lower())],
+    ):
+        if not match:
+            continue
+        match.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        if len(match) > 1:
+            log = logging.getLogger(__name__)
+            log.warning(
+                "%s: %d files match '%s*' — using the newest (%s); ignoring %s",
+                dataset, len(match), stem, match[0].name,
+                ", ".join(p.name for p in match[1:]),
+            )
+        return match[0]
     return None
 
 
@@ -282,6 +307,17 @@ def update_cmd(config_path, mapping_path, period, method, as_of, keep_history):
             f"{blocked} SKU(s) held back — check the Exceptions sheet before uploading.",
             fg="yellow",
         )
+    outstanding = result.stats.get("Unit reviews outstanding", 0)
+    if outstanding:
+        click.secho(
+            f"{outstanding} SKU(s) are waiting on a unit decision and were kept off the "
+            "upload sheet.\n  Run 'markup review', fill in the Decision column in "
+            "config/unit_review.xlsx, then run 'markup update' again.",
+            fg="yellow",
+        )
+    corrected = result.stats.get("Unit corrections applied", 0)
+    if corrected:
+        click.echo(f"{corrected} SKU(s) were costed under an approved unit correction.")
     click.echo("Run 'markup report' for the summary and a comparison with the previous run.")
 
 
@@ -386,4 +422,100 @@ def runs_cmd(config_path, mapping_path, limit):
             f"{str(s.get('Period (days)')):>8}{str(s.get('SKUs priced')):>9}"
             f"{str(s.get('SKUs blocked from upload')):>9}"
         )
+    click.echo("")
+
+
+@cli.command("review")
+@click.option("--config", "config_path", default="config/config.yaml", show_default=True)
+@click.option("--mapping", "mapping_path", default="config/column_mapping.yaml", show_default=True)
+@click.option("--period", type=int, default=None, help="Override run.period_days")
+@click.option("--show-all", is_flag=True, help="List every entry, not just the pending ones")
+def review_cmd(config_path, mapping_path, period, show_all):
+    """Surface SKUs whose selling unit and receipt unit disagree, for your decision.
+
+    Cost is recorded per unit received; price is published per unit sold. Where
+    those differ the conversion has to be right, and only a person who knows the
+    product can confirm it. This command refreshes config/unit_review.xlsx with
+    anything new, keeping decisions you have already made.
+    """
+    try:
+        cfg = AppConfig.load(config_path, mapping_path, {"run.period_days": period})
+    except ConfigError as exc:
+        raise click.ClickException(f"Configuration problem: {exc}") from None
+    _setup_logging(cfg.log_level, cfg.log_file, cfg.root)
+
+    paths = {name: _find_input(cfg, name) for name in DEFAULT_INPUTS}
+    missing = [n for n in ("gr2", "w10", "markup_list") if paths[n] is None]
+    if missing:
+        raise click.ClickException(
+            "Missing required input(s): " + ", ".join(DEFAULT_INPUTS[n] for n in missing)
+        )
+
+    from .costing import cost_skus
+    from .io import load_gr2, load_markup_list, load_sale_list, load_w10_units, unit_table
+
+    gr2 = load_gr2(paths["gr2"], cfg.mapping)
+    units = load_w10_units(paths["w10"], cfg.mapping)
+    markups = load_markup_list(paths["markup_list"], cfg.mapping, cfg.markup_value_scale)
+    scope = load_sale_list(paths["sale_list"], cfg.mapping)
+    coefficients = unit_table(units)
+
+    decisions = unit_review.load_decisions(cfg)
+    costs, _ = cost_skus(gr2, cfg, coefficients, unit_review.unit_remap(decisions))
+
+    sale_units = markups.rename(columns={"key": "sku"})[["sku", "sale_uom"]]
+    if scope is not None and "sale_uom" in scope.columns:
+        sale_units = scope[["sku", "sale_uom"]]
+    names = markups.rename(columns={"key": "sku"})[["sku", "product_name"]]
+    prices = markups.rename(columns={"key": "sku"})[["sku", "current_price", "markup_pct"]]
+
+    received = gr2.groupby("sku")["uom"].agg(
+        lambda s: ", ".join(sorted({str(x).strip() for x in s.dropna()}))
+    )
+
+    cand = (
+        sale_units.merge(names, on="sku", how="left")
+        .merge(prices, on="sku", how="left")
+        .merge(costs[["sku", "unit_cost"]], on="sku", how="left")
+    )
+    cand["gr_units"] = cand["sku"].map(received)
+    cand["coefficient"] = [
+        coefficients.get((s, str(u).strip().lower())) for s, u in zip(cand["sku"], cand["sale_uom"])
+    ]
+    cand["cost_per_gr_unit"] = cand["unit_cost"]
+    cand["converted_cost"] = cand["unit_cost"] * cand["coefficient"]
+    cand = cand[cand["unit_cost"].notna()]
+
+    flagged = unit_review.detect(cand)
+    path, added, pending = unit_review.sync(cfg, flagged, decisions)
+
+    click.echo("")
+    click.secho(f"Unit review: {path}", bold=True)
+    click.echo(f"  flagged now        {len(flagged)}")
+    click.echo(f"  newly added        {added}")
+    click.echo(f"  awaiting decision  {pending}")
+
+    import pandas as pd
+
+    sheet = pd.read_excel(path, sheet_name=unit_review.SHEET)
+    sheet.columns = [str(c).strip() for c in sheet.columns]
+    if not show_all:
+        sheet = sheet[
+            sheet["Decision"].astype(str).str.strip().str.upper().isin(["PENDING", "NAN", ""])
+        ]
+    if sheet.empty:
+        click.secho("\n  Nothing awaiting a decision.", fg="green")
+    else:
+        click.echo("")
+        for r in sheet.itertuples():
+            click.echo(f"  {r.SKU}  sold per '{getattr(r, '_3')}'  received per "
+                       f"'{getattr(r, '_4')}'  coef {getattr(r, 'Coefficient')}")
+            click.echo(f"      {getattr(r, '_11')}")
+        click.echo(
+            "\n  Open the file, set Decision on each row, then run 'markup update'."
+        )
+        click.echo("  ACCEPT   the coefficient conversion is right")
+        click.echo("  TREAT_AS the receipt unit is mis-keyed — put the real unit in "
+                   "'Treat GR Unit As'")
+        click.echo("  EXCLUDE  do not price this SKU")
     click.echo("")

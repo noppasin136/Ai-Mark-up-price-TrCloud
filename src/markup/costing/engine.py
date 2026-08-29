@@ -27,6 +27,54 @@ def effective_cost(gr2: pd.DataFrame, cost_basis: str) -> pd.Series:
     return (base + (landed / qty).fillna(0.0)).astype(float)
 
 
+def to_base_units(
+    gr2: pd.DataFrame,
+    coefficients: dict[tuple[str, str], float],
+    remap: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    """Restate every receipt line in the SKU's BASE unit.
+
+    Cost is recorded per received unit, which is not always the unit the item is
+    sold in. W10's coefficient (base units per that unit) is the bridge:
+
+        cost per base unit = unit cost / coefficient
+        quantity in base units = quantity * coefficient
+
+    ``remap`` applies approved corrections from the unit review first, for SKUs
+    whose receipts are keyed against the wrong unit — the ถุงร้อน items are
+    bought by the pack but entered as bag, so their receipts must be read as
+    packs before any coefficient is applied.
+
+    Lines whose unit W10 does not recognise get no coefficient and are dropped
+    from costing rather than silently assumed to be base units; the SKU then
+    shows up as uncosted instead of mispriced.
+    """
+    df = gr2.copy()
+    df["uom_as_recorded"] = df["uom"]
+    if remap:
+        df["uom"] = [remap.get(sku, uom) for sku, uom in zip(df["sku"], df["uom"])]
+        corrected = int((df["uom"] != df["uom_as_recorded"]).sum())
+        if corrected:
+            log.info("Unit review: %d GR line(s) re-read under a corrected unit", corrected)
+
+    df["unit_coefficient"] = [
+        coefficients.get((sku, str(uom).strip().lower()))
+        for sku, uom in zip(df["sku"], df["uom"])
+    ]
+
+    unknown = df["unit_coefficient"].isna()
+    if unknown.any():
+        log.warning(
+            "%d GR line(s) across %d SKU(s) use a unit W10 does not list — excluded from costing",
+            int(unknown.sum()), df.loc[unknown, "sku"].nunique(),
+        )
+        df = df[~unknown]
+
+    df["qty"] = df["qty"] * df["unit_coefficient"]
+    df["effective_cost"] = df["effective_cost"] / df["unit_coefficient"]
+    return df
+
+
 def filter_window(gr2: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
     """Keep only receipts inside ``[as_of_date - period_days, as_of_date]``."""
     start = pd.Timestamp(cfg.window_start)
@@ -71,10 +119,22 @@ def _drop_outliers(layers: pd.DataFrame, opts: dict) -> tuple[pd.DataFrame, int]
     return (layers[keep], dropped) if dropped < len(layers) else (layers, 0)
 
 
-def cost_skus(gr2: pd.DataFrame, cfg: AppConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return ``(cost_table, audit_table)`` — one row per SKU, plus the layer trail."""
+def cost_skus(
+    gr2: pd.DataFrame,
+    cfg: AppConfig,
+    coefficients: dict[tuple[str, str], float] | None = None,
+    unit_remap: dict[str, str] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return ``(cost_table, audit_table)`` — one row per SKU, plus the layer trail.
+
+    When ``coefficients`` is supplied the resulting ``unit_cost`` is per BASE
+    unit; the caller scales it to whichever unit the item is sold in. Without
+    them, costs stay in whatever unit each line was received in.
+    """
     df = filter_window(gr2, cfg)
     df["effective_cost"] = effective_cost(df, cfg.cost_basis)
+    if coefficients:
+        df = to_base_units(df, coefficients, unit_remap)
 
     if cfg.drop_nonpositive:
         before = len(df)
@@ -126,6 +186,9 @@ def cost_skus(gr2: pd.DataFrame, cfg: AppConfig) -> tuple[pd.DataFrame, pd.DataF
                     "receipt_no": row.get("receipt_no"),
                     "supplier": row.get("supplier"),
                     "qty": row["qty"],
+                    "unit_recorded": row.get("uom_as_recorded", row.get("uom")),
+                    "unit_costed_as": row.get("uom"),
+                    "unit_coefficient": row.get("unit_coefficient"),
                     "unit_cost": row["unit_cost"],
                     "freight": row.get("freight", 0),
                     "duty": row.get("duty", 0),

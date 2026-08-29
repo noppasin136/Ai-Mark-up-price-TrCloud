@@ -9,12 +9,20 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import unit_review
 from .config import AppConfig
 from .costing import cost_skus
-from .io import load_gr2, load_markup_list, load_sale_list, load_w10
+from .io import (
+    load_gr2,
+    load_markup_list,
+    load_sale_list,
+    load_w10,
+    load_w10_units,
+    unit_table,
+)
 from .rules.markup import MarkupResolver, apply_markup, gross_margin_pct
 from .rules.rounding import apply_rounding, pick_rule
-from .uom import build_unit_rows, derive_parallel_price, normalise_factor
+from .uom import build_unit_rows, normalise_factor
 from .validation import apply_guardrails, exceptions_view
 
 log = logging.getLogger(__name__)
@@ -40,17 +48,22 @@ def run(
     started = dt.datetime.now()
 
     gr2 = load_gr2(cfg.resolve(gr2_path), cfg.mapping)
+    units = load_w10_units(cfg.resolve(w10_path), cfg.mapping)
     w10 = load_w10(cfg.resolve(w10_path), cfg.mapping)
-    markups = load_markup_list(cfg.resolve(markup_path), cfg.mapping)
+    markups = load_markup_list(cfg.resolve(markup_path), cfg.mapping, cfg.markup_value_scale)
     sale_list = load_sale_list(cfg.resolve(sale_list_path) if sale_list_path else None, cfg.mapping)
 
-    costs, audit = cost_skus(gr2, cfg)
+    coefficients = unit_table(units)
+    decisions = unit_review.load_decisions(cfg)
+
+    costs, audit = cost_skus(gr2, cfg, coefficients, unit_review.unit_remap(decisions))
     detail = _build_detail(w10, costs, sale_list)
+    detail = _resolve_sale_units(detail, coefficients, decisions, gr2)
     detail = _price(detail, MarkupResolver(markups, cfg), cfg)
     detail = apply_guardrails(detail, cfg)
 
-    upload = _build_upload(detail, cfg)
-    stats = _stats(detail, upload, gr2, cfg, started)
+    upload = _build_upload(detail, units, cfg)
+    stats = _stats(detail, upload, gr2, cfg, started, decisions)
 
     return RunResult(
         detail=_order_detail(detail),
@@ -67,9 +80,15 @@ def _build_detail(w10: pd.DataFrame, costs: pd.DataFrame, sale_list) -> pd.DataF
     """Scope = the sale list if one was supplied, otherwise everything in W10."""
     if sale_list is not None and not sale_list.empty:
         base = sale_list.merge(w10, on="sku", how="left", suffixes=("_sl", ""))
-        if "product_name_sl" in base.columns:
-            base["product_name"] = base["product_name"].fillna(base["product_name_sl"])
-            base = base.drop(columns=["product_name_sl"])
+        # The sale list wins on any column both files carry. W10 prices are per
+        # BASE unit and are frequently zero, so using them as the current price
+        # would compare each new price against the wrong baseline — and blow up
+        # the guardrails for every SKU sold in a parallel unit.
+        for col in ("current_price", "product_name"):
+            theirs = f"{col}_sl"
+            if theirs in base.columns:
+                base[col] = base[theirs].where(base[theirs].notna(), base.get(col))
+                base = base.drop(columns=[theirs])
     else:
         base = w10.copy()
         base["sale_uom"] = base.get("uom")
@@ -79,8 +98,69 @@ def _build_detail(w10: pd.DataFrame, costs: pd.DataFrame, sale_list) -> pd.DataF
     base["sale_uom"] = base["sale_uom"].fillna(base.get("uom"))
 
     out = base.merge(costs, on="sku", how="left")
-    out["conversion_factor"] = out.get("conversion_factor", 1.0).map(normalise_factor)
     return out
+
+
+def _resolve_sale_units(
+    detail: pd.DataFrame,
+    coefficients: dict[tuple[str, str], float],
+    decisions: dict[str, "unit_review.Decision"],
+    gr2: pd.DataFrame,
+) -> pd.DataFrame:
+    """Scale each SKU's base-unit cost into the unit it is actually sold in.
+
+    Also stamps ``unit_status``, which drives the UNIT_* flags. The review sheet
+    is the authority: anything sitting in config/unit_review.xlsx without a
+    decision stays ``unverified`` — and therefore off the price upload — no
+    matter which of the detector's rules put it there. A conflict that has never
+    been through ``markup review`` is treated the same way, so a new one next
+    month cannot quietly reach the ERP.
+    """
+    df = detail.copy()
+    received = gr2.groupby("sku")["uom"].agg(
+        lambda s: ", ".join(sorted({str(x).strip() for x in s.dropna()}))
+    )
+    df["gr_units_received"] = df["sku"].map(received)
+
+    df["sale_coefficient"] = [
+        coefficients.get((sku, str(uom).strip().lower()))
+        for sku, uom in zip(df["sku"], df["sale_uom"])
+    ]
+    # unit_cost arrives per base unit; restate it per sale unit.
+    df["unit_cost_base"] = df["unit_cost"]
+    df["unit_cost"] = df["unit_cost_base"] * df["sale_coefficient"]
+
+    statuses = []
+    for row in df.itertuples():
+        decision = decisions.get(row.sku)
+
+        if decision is not None:
+            if decision.decision == unit_review.EXCLUDE:
+                statuses.append("excluded")
+            elif decision.decision == unit_review.TREAT_AS:
+                statuses.append("corrected")
+            elif decision.decision == unit_review.ACCEPT:
+                statuses.append("ok")
+            else:                      # PENDING — listed for review, not yet decided
+                statuses.append("unverified")
+            continue
+
+        if pd.isna(row.sale_coefficient):
+            statuses.append("unknown_unit")
+            continue
+
+        # Not in the review sheet at all: only a live unit conflict holds it back.
+        raw = row.gr_units_received
+        got = (
+            []
+            if raw is None or (isinstance(raw, float) and pd.isna(raw))
+            else [u.strip().lower() for u in str(raw).split(",") if u.strip()]
+        )
+        sale = str(row.sale_uom or "").strip().lower()
+        statuses.append("ok" if (not got or not sale or sale in got) else "unverified")
+
+    df["unit_status"] = statuses
+    return df
 
 
 def _price(detail: pd.DataFrame, resolver: MarkupResolver, cfg: AppConfig) -> pd.DataFrame:
@@ -89,11 +169,10 @@ def _price(detail: pd.DataFrame, resolver: MarkupResolver, cfg: AppConfig) -> pd
         rule = resolver.resolve(row)
         cost = row.get("unit_cost")
 
-        raw = base = parallel = margin = None
+        raw = base = margin = None
         if pd.notna(cost):
             raw = apply_markup(float(cost), rule)
             base = apply_rounding(raw, pick_rule(float(cost), cfg))
-            parallel = derive_parallel_price(base, raw, row.get("conversion_factor", 1.0), cfg)
             margin = gross_margin_pct(base, float(cost))
 
         current = row.get("current_price")
@@ -112,7 +191,6 @@ def _price(detail: pd.DataFrame, resolver: MarkupResolver, cfg: AppConfig) -> pd
                 "min_margin_pct": rule.min_margin_pct,
                 "raw_price": round(raw, cfg.precision) if raw is not None else None,
                 "suggested_price": base,
-                "parallel_price": parallel,
                 "margin_pct": round(margin, 2) if margin is not None else None,
                 "change_pct": round(change, 2) if change is not None else None,
                 "price_change": round(base - current, 2)
@@ -123,7 +201,7 @@ def _price(detail: pd.DataFrame, resolver: MarkupResolver, cfg: AppConfig) -> pd
     return pd.concat([detail.reset_index(drop=True), pd.DataFrame(rows)], axis=1)
 
 
-def _build_upload(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
+def _build_upload(detail: pd.DataFrame, units: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
     """The lean ERP-import sheet: SKU, selling unit, sale price."""
     opts = cfg.upload_opts
     df = detail
@@ -136,7 +214,7 @@ def _build_upload(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
     df = df[df["suggested_price"].notna()]
 
     if opts.get("include_parallel_rows", True) and cfg.parallel_enabled:
-        rows = build_unit_rows(df, cfg)
+        rows = build_unit_rows(df, units, cfg)
     else:
         rows = df.assign(unit=df["sale_uom"], sale_price=df["suggested_price"])
 
@@ -148,7 +226,8 @@ def _build_upload(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
 def _order_detail(detail: pd.DataFrame) -> pd.DataFrame:
     preferred = [
         "sku", "product_name", "department", "category", "subcategory", "brand",
-        "sale_uom", "uom", "parallel_uom", "conversion_factor",
+        "sale_uom", "uom", "gr_units_received", "sale_coefficient", "unit_status",
+        "unit_cost_base",
         "unit_cost", "costing_method", "cost_note", "gr_lines_used", "gr_qty_used",
         "first_receipt", "last_receipt", "min_line_cost", "max_line_cost",
         "outliers_dropped",
@@ -163,8 +242,9 @@ def _order_detail(detail: pd.DataFrame) -> pd.DataFrame:
     return detail[cols].reset_index(drop=True)
 
 
-def _stats(detail, upload, gr2, cfg: AppConfig, started: dt.datetime) -> dict:
+def _stats(detail, upload, gr2, cfg: AppConfig, started: dt.datetime, decisions=None) -> dict:
     priced = int(detail["suggested_price"].notna().sum())
+    status = detail.get("unit_status")
     return {
         "Run timestamp": started.strftime("%Y-%m-%d %H:%M:%S"),
         "As-of date": str(cfg.as_of_date),
@@ -190,6 +270,11 @@ def _stats(detail, upload, gr2, cfg: AppConfig, started: dt.datetime) -> dict:
         "SKUs without cost": int(detail["unit_cost"].isna().sum()),
         "SKUs flagged": int((detail["flag_codes"].astype(bool)).sum()),
         "SKUs blocked from upload": int(detail["blocked"].sum()),
+        "Unit reviews outstanding": int((status == "unverified").sum()) if status is not None else 0,
+        "Unit corrections applied": (
+            sum(1 for d in (decisions or {}).values() if d.decision == unit_review.TREAT_AS)
+        ),
+        "SKUs excluded by review": int((status == "excluded").sum()) if status is not None else 0,
         "Upload rows": len(upload),
         "Average margin %": round(float(detail["margin_pct"].mean(skipna=True)), 2)
         if priced

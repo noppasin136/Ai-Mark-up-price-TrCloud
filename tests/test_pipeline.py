@@ -41,6 +41,22 @@ def test_pipeline_produces_priced_rows():
     assert result.detail["suggested_price"].notna().sum() > 0
 
 
+def test_parallel_units_are_priced_from_the_w10_units_table():
+    _, result = _run()
+    upload = result.upload
+    multi = upload[upload.duplicated("SKU", keep=False)]
+    assert not multi.empty, "expected at least one SKU priced in two units"
+    # the larger unit must cost more than the base unit it contains
+    for sku, rows in multi.groupby("SKU"):
+        assert rows["Sale Price"].nunique() > 1
+
+
+def test_unverified_units_never_reach_the_upload_sheet():
+    _, result = _run()
+    held = set(result.detail.loc[result.detail["unit_status"] == "unverified", "sku"])
+    assert not (held & set(result.upload["SKU"]))
+
+
 def test_upload_sheet_has_exactly_the_three_agreed_columns():
     _, result = _run()
     assert list(result.upload.columns) == ["SKU", "Unit", "Sale Price"]

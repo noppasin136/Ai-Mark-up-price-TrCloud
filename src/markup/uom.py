@@ -1,18 +1,26 @@
-"""Unit-of-measure handling for the parallel (secondary) selling unit.
+"""Unit-of-measure handling.
 
-W10 carries a base UOM and a parallel UOM with a conversion factor — the number
-of base units in one parallel unit (e.g. base ``PCS``, parallel ``BOX``,
-factor 12). The parallel price is derived from the base price, then rounded on
-its own so the pack price is a clean number in its own right rather than an
-awkward multiple of a rounded unit price.
+W10 carries one row per SKU *and unit*, with a coefficient giving the number of
+base units in that unit — 12 pieces to a box, 50 to a row. Costs are therefore
+held per base unit inside the engine (see ``costing.engine.to_base_units``) and
+scaled out to whichever unit a price is being published for.
+
+The sale list names one selling unit per SKU. When ``parallel_unit.enabled`` is
+on, every *other* unit W10 lists for that SKU is priced as well, so a product
+sold by the piece can also be published by the box without a second run.
 """
 
 from __future__ import annotations
 
+import logging
+
 import pandas as pd
 
 from .config import AppConfig
-from .rules.rounding import apply_rounding
+from .rules.markup import MarkupRule, apply_markup
+from .rules.rounding import apply_rounding, pick_rule
+
+log = logging.getLogger(__name__)
 
 
 def normalise_factor(value: object) -> float:
@@ -24,54 +32,80 @@ def normalise_factor(value: object) -> float:
     return factor if factor > 0 else 1.0
 
 
-def derive_parallel_price(
-    base_price: float | None,
-    unrounded_base: float | None,
-    factor: float,
+def price_for_unit(
+    unit_cost_base: float,
+    coefficient: float,
+    markup_pct: float,
+    basis: str,
     cfg: AppConfig,
-) -> float | None:
-    """Price for one parallel unit.
+) -> tuple[float | None, float | None]:
+    """Price one unit of a SKU. Returns ``(rounded, unrounded)``.
 
-    When ``parallel_unit.round_separately`` is true the calculation starts from
-    the *unrounded* base price so rounding error is not multiplied by the pack
-    size; otherwise the published base price is simply scaled up.
+    Rounding is applied to this unit's own price rather than scaling an already
+    rounded one, so a 24-pack does not inherit 24x the rounding error.
     """
-    if not cfg.parallel_enabled or base_price is None:
-        return None
+    if pd.isna(unit_cost_base) or pd.isna(coefficient):
+        return None, None
 
-    factor = normalise_factor(factor)
-    if factor == 1.0:
-        return None
-
-    source = unrounded_base if (cfg.parallel_round_separately and unrounded_base) else base_price
-    raw = source * factor
-    if cfg.bulk_discount_pct:
+    cost = float(unit_cost_base) * float(coefficient)
+    rule = MarkupRule(pct=markup_pct, level="", key="", basis=basis, min_margin_pct=0.0)
+    raw = apply_markup(cost, rule)
+    if cfg.bulk_discount_pct and coefficient > 1:
         raw *= 1 - cfg.bulk_discount_pct / 100.0
-
-    if not cfg.parallel_round_separately:
-        return round(raw, 2)
-    return apply_rounding(raw, cfg.parallel_rounding)
+    return apply_rounding(raw, pick_rule(cost, cfg)), raw
 
 
-def build_unit_rows(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
-    """Explode the detail frame into one row per sellable unit (base + parallel)."""
+def build_unit_rows(detail: pd.DataFrame, units: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
+    """One row per sellable unit: the sale unit, plus every other W10 unit.
+
+    Rows are only produced for SKUs that priced cleanly — a SKU held back for
+    review does not get a parallel row either.
+    """
     base = detail.assign(
-        unit=detail["sale_uom"].fillna(detail.get("uom")),
+        unit=detail["sale_uom"],
         sale_price=detail["suggested_price"],
-        unit_type="base",
+        unit_type="sale",
+        unit_coefficient=detail["sale_coefficient"],
     )
-    frames = [base]
+    if not cfg.parallel_enabled or units is None or units.empty:
+        return base.reset_index(drop=True)
 
-    if cfg.parallel_enabled and "parallel_price" in detail.columns:
-        par = detail[detail["parallel_price"].notna()].copy()
-        if not par.empty:
-            frames.append(
-                par.assign(
-                    unit=par["parallel_uom"],
-                    sale_price=par["parallel_price"],
-                    unit_type="parallel",
-                )
+    by_sku: dict[str, list[tuple[str, float]]] = {}
+    for r in units.itertuples():
+        by_sku.setdefault(r.sku, []).append((str(r.uom).strip(), normalise_factor(r.conversion_factor)))
+
+    extra = []
+    for row in detail.itertuples():
+        if pd.isna(row.suggested_price) or pd.isna(row.unit_cost_base):
+            continue
+        sale = str(row.sale_uom or "").strip().lower()
+        for unit, coefficient in by_sku.get(row.sku, []):
+            if unit.lower() == sale:
+                continue
+            price, _ = price_for_unit(
+                row.unit_cost_base, coefficient, row.markup_pct, row.markup_basis, cfg
             )
+            if price is None:
+                continue
+            record = row._asdict()
+            record.pop("Index", None)
+            record.update(
+                unit=unit,
+                sale_price=price,
+                unit_type="parallel",
+                unit_coefficient=coefficient,
+            )
+            extra.append(record)
 
-    out = pd.concat(frames, ignore_index=True)
-    return out.sort_values(["sku", "unit_type"], ascending=[True, True]).reset_index(drop=True)
+    if not extra:
+        return base.reset_index(drop=True)
+
+    log.info("Derived %d parallel-unit price(s) from W10", len(extra))
+    out = pd.concat([base, pd.DataFrame(extra)], ignore_index=True)
+    order = {"sale": 0, "parallel": 1}
+    return (
+        out.assign(_o=out["unit_type"].map(order))
+        .sort_values(["sku", "_o"])
+        .drop(columns="_o")
+        .reset_index(drop=True)
+    )

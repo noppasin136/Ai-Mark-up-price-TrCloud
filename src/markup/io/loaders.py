@@ -6,10 +6,36 @@ import logging
 from pathlib import Path
 
 import pandas as pd
+from openpyxl.worksheet import _reader
 
 from .schemas import resolve_columns
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# The ERP writes the literal text "null" into some numeric cells. openpyxl
+# raises ValueError mid-parse on those, which takes the whole file down. Recover
+# them as blanks instead and count them, so a genuinely corrupt export is still
+# visible in the log rather than silently tolerated.
+# ---------------------------------------------------------------------------
+_orig_cast_number = _reader._cast_number
+_recovered_cells = {"count": 0}
+
+
+def _tolerant_cast_number(value):
+    try:
+        return _orig_cast_number(value)
+    except (ValueError, TypeError):
+        _recovered_cells["count"] += 1
+        return None
+
+
+_reader._cast_number = _tolerant_cast_number
+
+
+def recovered_cell_count() -> int:
+    """How many malformed numeric cells have been recovered as blanks so far."""
+    return _recovered_cells["count"]
 
 
 def _read_any(path: str | Path, sheet: object = 0, header_row: int = 0) -> pd.DataFrame:
@@ -21,7 +47,20 @@ def _read_any(path: str | Path, sheet: object = 0, header_row: int = 0) -> pd.Da
         )
     if path.suffix.lower() in {".csv", ".txt"}:
         return pd.read_csv(path, header=header_row, dtype=str, keep_default_na=False, na_values=[""])
-    return pd.read_excel(path, sheet_name=sheet, header=header_row, dtype=object)
+
+    try:
+        return pd.read_excel(path, sheet_name=sheet, header=header_row, dtype=object)
+    except ValueError as exc:
+        if "Worksheet named" not in str(exc):
+            raise
+        # The configured sheet is missing — fall back to the first one, but say
+        # so, since a renamed sheet is usually a changed report, not a non-event.
+        available = pd.ExcelFile(path).sheet_names
+        log.warning(
+            "%s has no sheet '%s' (found: %s) — reading the first sheet instead",
+            path.name, sheet, ", ".join(available),
+        )
+        return pd.read_excel(path, sheet_name=0, header=header_row, dtype=object)
 
 
 def _load(path: str | Path, dataset: str, mapping: dict) -> pd.DataFrame:
@@ -44,32 +83,83 @@ def load_gr2(path: str | Path, mapping: dict) -> pd.DataFrame:
     return df.sort_values(["sku", "receipt_date"]).reset_index(drop=True)
 
 
-def load_w10(path: str | Path, mapping: dict) -> pd.DataFrame:
-    """Current selling prices, UOM, parallel unit and product hierarchy."""
+def load_w10_units(path: str | Path, mapping: dict) -> pd.DataFrame:
+    """Every sellable unit of every SKU — W10 carries one row per SKU *and unit*.
+
+    This is the authority on which units a SKU may be sold in, and on the
+    coefficient (base units per that unit) needed to convert costs between them.
+    """
     df = _load(path, "w10", mapping)
-    if "conversion_factor" in df.columns:
-        df["conversion_factor"] = df["conversion_factor"].fillna(1.0).replace(0, 1.0)
-    else:
+    if "conversion_factor" not in df.columns:
         df["conversion_factor"] = 1.0
-    for col in ("category", "subcategory", "department", "parallel_uom", "uom"):
+    df["conversion_factor"] = df["conversion_factor"].fillna(1.0).replace(0, 1.0)
+    if "is_base_unit" not in df.columns:
+        # No flag exported: infer the base unit as the one with coefficient 1.
+        df["is_base_unit"] = (df["conversion_factor"] == 1).astype(int)
+    df["is_base_unit"] = df["is_base_unit"].fillna(0).astype(int)
+    df["uom"] = df["uom"].astype(str).str.strip()
+    for col in ("category", "subcategory", "department", "product_name"):
         if col not in df.columns:
             df[col] = pd.NA
-    # Disambiguate: the ERP's existing parallel price is the CURRENT one; the
-    # engine computes its own `parallel_price` later.
-    if "parallel_price" in df.columns:
-        df = df.rename(columns={"parallel_price": "current_parallel_price"})
-    dupes = int(df["sku"].duplicated().sum())
-    if dupes:
-        log.warning("W10 has %d duplicate SKU rows — keeping the first of each", dupes)
-        df = df.drop_duplicates(subset=["sku"], keep="first")
+    if "current_price" not in df.columns:
+        df["current_price"] = pd.NA
     return df.reset_index(drop=True)
 
 
-def load_markup_list(path: str | Path, mapping: dict) -> pd.DataFrame:
-    """Markup master. ``level`` defaults to 'category' when the column is absent."""
+def load_w10(path: str | Path, mapping: dict) -> pd.DataFrame:
+    """One row per SKU: its BASE unit and the product hierarchy.
+
+    Selected on the ``is_base_unit`` flag rather than on row order — W10 happens
+    to list base units first today, but that is an accident of the export.
+    """
+    units = load_w10_units(path, mapping)
+    base = units[units["is_base_unit"] == 1].copy()
+
+    missing = set(units["sku"]) - set(base["sku"])
+    if missing:
+        log.warning(
+            "%d SKU(s) have no base-unit row in W10; falling back to their "
+            "lowest-coefficient unit", len(missing),
+        )
+        fallback = (
+            units[units["sku"].isin(missing)]
+            .sort_values("conversion_factor")
+            .drop_duplicates(subset=["sku"], keep="first")
+        )
+        base = pd.concat([base, fallback], ignore_index=True)
+
+    dupes = int(base["sku"].duplicated().sum())
+    if dupes:
+        log.warning("W10 marks %d SKU(s) with more than one base unit — keeping the first", dupes)
+        base = base.drop_duplicates(subset=["sku"], keep="first")
+
+    log.info("W10: %d unit rows across %d SKU(s)", len(units), base["sku"].nunique())
+    return base.reset_index(drop=True)
+
+
+def unit_table(w10_units: pd.DataFrame) -> dict[tuple[str, str], float]:
+    """(sku, lowercased unit) -> coefficient, for cost conversion."""
+    return {
+        (r.sku, str(r.uom).strip().lower()): float(r.conversion_factor)
+        for r in w10_units.itertuples()
+    }
+
+
+def load_markup_list(path: str | Path, mapping: dict, value_scale: float = 1.0) -> pd.DataFrame:
+    """Markup master.
+
+    ``value_scale`` converts the file's units into percent: set it to 100 when
+    the list stores fractions (0.12 meaning 12%), which is how this ERP's export
+    is written. ``level`` defaults to 'sku' when the column is absent, because a
+    list with one row per product code is a per-SKU list.
+    """
     df = _load(path, "markup_list", mapping)
+    if value_scale != 1.0:
+        df["markup_pct"] = df["markup_pct"] * value_scale
+        log.info("Markup values scaled by x%g (file stores fractions, engine uses percent)",
+                 value_scale)
     if "level" not in df.columns:
-        df["level"] = "category"
+        df["level"] = "sku"
     df["level"] = df["level"].fillna("category").astype(str).str.strip().str.lower()
     df["key"] = df["key"].astype(str).str.strip()
     df = df.dropna(subset=["markup_pct"])

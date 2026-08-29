@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.0 — unit review
+
+Cost is recorded per unit received and price is published per unit sold. Where
+those differ, a conversion is needed — and a mis-keyed receipt unit is
+indistinguishable from a legitimate parallel unit without human knowledge. This
+release adds the gate.
+
+- `markup review` and `config/unit_review.xlsx`: flagged SKUs with the evidence
+  and a Decision column (PENDING / ACCEPT / TREAT_AS / EXCLUDE). Decisions
+  persist across runs and double as the audit trail.
+- `TREAT_AS` re-reads a SKU's receipts under a corrected unit before any
+  coefficient is applied — the ถุงร้อน case, bought by the pack, keyed as bag.
+- Unreviewed conflicts carry `UNIT_UNVERIFIED`, land on Exceptions and never
+  reach Price Upload; the run still completes for everything else.
+- W10 is now read as a full unit table (one row per SKU *and* unit). Costs are
+  held per base unit internally and scaled to the unit being priced. Parallel
+  prices are derived from that table rather than from columns.
+- Base unit selected on the `เป็นหน่วยหลัก` flag rather than row order.
+- `markup.value_scale` converts a markup list stored as fractions into percent.
+- Input files matched by prefix, so long ERP export names work unrenamed.
+- Loader recovers the literal text `null` that the ERP writes into numeric
+  cells, instead of dying mid-parse.
+- Header matching is Unicode-aware — the previous rule erased Thai headers
+  entirely and collapsed them all to the same empty string.
+- Sale list wins over W10 on current price; W10 prices are per base unit and
+  frequently zero, which was corrupting every variance and guardrail.
+- Missing configured sheet falls back to the first sheet, with a warning.
+
 ## 0.2.0
 
 - `markup check` — validates `data/input/` and reports column-mapping problems

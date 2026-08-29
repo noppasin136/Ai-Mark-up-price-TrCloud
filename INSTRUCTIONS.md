@@ -125,7 +125,14 @@ markup:
   default_pct: 30.0
   basis: cost_plus
   min_margin_pct: 5.0
+  value_scale: 100
 ```
+
+**`value_scale`** turns the file's markup values into percentages. This ERP's
+list stores fractions — `0.12` meaning 12% — so the scale is `100`. Set it to
+`1` if your list ever switches to whole percentages. Getting this wrong is
+silent and severe: at `value_scale: 1` a 0.12 markup would price everything at
+cost plus a tenth of a percent.
 
 Each SKU walks the chain in order and takes the **first** rule that matches, so
 a SKU-level exception beats a subcategory rule, which beats a category rule.
@@ -266,7 +273,10 @@ catalogue over a few satang.
 | `PRICE_DECREASE` | Lower than the current price | no |
 | `NO_CURRENT_PRICE` | New item, nothing to compare | no |
 | `BELOW_MIN_CHANGE` | Move too small to bother with | no |
-| `BAD_CONVERSION` | Parallel unit present, factor missing | no |
+| `UNIT_UNVERIFIED` | Unit conflict not yet decided in the review sheet | yes |
+| `UNIT_EXCLUDED` | Excluded by a decision in the review sheet | yes |
+| `UNKNOWN_SALE_UNIT` | Sale unit is not listed for this SKU in W10 | yes |
+| `UNIT_CORRECTED` | Costed under an approved unit correction | no |
 
 ---
 
@@ -313,18 +323,72 @@ When the report has a title block above the headers, set `header_row` to the
 
 ---
 
-## 9. A typical workflow
+## 9. Unit review
 
-1. Export GR2 and W10 from the ERP and save them into `data/input/` as
-   **`GR2.xlsx`** and **`W10.xlsx`**. Add `markup_list.xlsx`, and
-   `sale_list.xlsx` if you use one.
+Cost arrives per unit **received**; price is published per unit **sold**. When
+those differ the engine converts using W10's coefficient — and the conversion is
+only ever as good as the ERP's unit data. Two different things happen in
+practice, and no formula can tell them apart:
+
+- the sale unit is genuinely a parallel unit, so the coefficient is correct; or
+- the receipt was keyed against the wrong unit. The ถุงร้อน items are bought by
+  the pack but entered as bag, so applying the ×4 would quadruple a cost that is
+  already per pack.
+
+So every questionable SKU is written to **`config/unit_review.xlsx`** and held
+off the price upload until you decide it.
+
+```bash
+markup review              # refresh the sheet with anything new
+markup review --show-all   # include rows already decided
+```
+
+A SKU is flagged when any of these is true:
+
+| Trigger | Meaning |
+|---|---|
+| sale unit is not among the units received | the two reports disagree |
+| sale unit is a W10 parallel unit (coefficient > 1) | conversion applies — confirm once |
+| converted cost exceeds the selling price by more than 25% | the classic signature of a mis-keyed unit |
+
+### Deciding
+
+Open the file and set the **Decision** column (it has a dropdown):
+
+| Decision | Effect |
+|---|---|
+| `PENDING` | *(default)* held back — excluded from Price Upload |
+| `ACCEPT` | the conversion is right; price it normally |
+| `TREAT_AS` | the receipt unit is wrong — put the real unit in **Treat GR Unit As** |
+| `EXCLUDE` | do not price this SKU at all |
+
+`TREAT_AS` re-reads that SKU's receipts under the unit you name, *before* any
+coefficient is applied. For the ถุงร้อน items, `Treat GR Unit As = pack` turns a
+90.06 "bag" receipt into a 90.06 pack — which is what was actually bought.
+
+Decisions persist. Re-running `markup review` only adds newly-flagged SKUs and
+never overwrites a decision you have made, so the sheet doubles as the audit
+trail for why a price is what it is. The **Note** column is yours.
+
+A SKU still awaiting a decision carries the `UNIT_UNVERIFIED` flag, appears on
+the Exceptions sheet, and cannot reach Price Upload. The run still completes, so
+the rest of the catalogue is usable while you work through them.
+
+---
+
+## 10. A typical workflow
+
+1. Export GR2 and W10 from the ERP into `data/input/`. Filenames do not matter
+   as long as they start with `GR2`, `W10`, `markup_list` and `sale_list` — the
+   ERP's long Thai names work unrenamed.
 2. `markup check` — confirms each file parses and every required column mapped.
    Fix any header spelling it reports in `config/column_mapping.yaml`.
-3. `markup update` — prices everything and writes the workbook.
-4. `markup report` — summary, category rollup, and a diff against your last run.
-5. Open **Exceptions** first. Clear or accept each row.
-6. Upload the **Price Upload** sheet to the ERP.
-7. Move this month's exports into `data/input/archive/` so next month starts clean.
+3. `markup review` — decide any newly flagged units. Usually nothing new.
+4. `markup update` — prices everything and writes the workbook.
+5. `markup report` — summary, category rollup, and a diff against your last run.
+6. Open **Exceptions** first. Clear or accept each row.
+7. Upload the **Price Upload** sheet to the ERP.
+8. Move this month's exports into `data/input/archive/` so next month starts clean.
 
 Each workbook carries its own **Run Summary** sheet, so there is never any doubt
 about which parameters produced which prices.
@@ -366,7 +430,7 @@ markup run --method weighted_average --out data/output/scenario_wavg.xlsx
 `run` takes explicit paths and does **not** record history, so scenario testing
 never pollutes the month-to-month comparison. Use `update` for real runs.
 
-## 10. Extending the engine
+## 11. Extending the engine
 
 **A new costing method** — add to `src/markup/costing/methods.py`:
 

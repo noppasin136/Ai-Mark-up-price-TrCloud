@@ -15,7 +15,7 @@ import pandas as pd
 # Columns a dataset cannot function without.
 REQUIRED: dict[str, tuple[str, ...]] = {
     "gr2": ("sku", "receipt_date", "qty", "unit_cost"),
-    "w10": ("sku", "current_price"),
+    "w10": ("sku", "uom"),
     "markup_list": ("key", "markup_pct"),
     "sale_list": ("sku",),
 }
@@ -23,9 +23,9 @@ REQUIRED: dict[str, tuple[str, ...]] = {
 # Columns coerced to numeric / datetime on load.
 NUMERIC: dict[str, tuple[str, ...]] = {
     "gr2": ("qty", "unit_cost", "total_cost", "freight", "duty", "other_landed"),
-    "w10": ("current_price", "parallel_price", "conversion_factor"),
-    "markup_list": ("markup_pct", "min_margin_pct"),
-    "sale_list": (),
+    "w10": ("current_price", "buy_price", "conversion_factor", "is_base_unit"),
+    "markup_list": ("markup_pct", "min_margin_pct", "current_price"),
+    "sale_list": ("current_price",),
 }
 DATES: dict[str, tuple[str, ...]] = {"gr2": ("receipt_date",)}
 
@@ -35,7 +35,12 @@ class SchemaError(ValueError):
 
 
 def _norm(s: object) -> str:
-    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+    """Fold a header for comparison: lowercase, strip spaces and punctuation.
+
+    Unicode-aware on purpose — ``[^a-z0-9]`` would erase Thai headers entirely
+    and collapse every one of them to the same empty string.
+    """
+    return re.sub(r"[\W_]+", "", str(s).strip().lower(), flags=re.UNICODE)
 
 
 def resolve_columns(df: pd.DataFrame, dataset: str, mapping: dict) -> pd.DataFrame:

@@ -83,6 +83,7 @@ class AppConfig:
     default_pct: float = 30.0
     markup_basis: str = "cost_plus"
     min_margin_pct: float = 5.0
+    markup_value_scale: float = 1.0
 
     # rounding
     rounding: RoundingRule = field(default_factory=RoundingRule)
@@ -175,6 +176,7 @@ class AppConfig:
             ),
             default_pct=float(_get(raw, "markup.default_pct", 30.0)),
             markup_basis=str(_get(raw, "markup.basis", "cost_plus")).lower(),
+            markup_value_scale=float(_get(raw, "markup.value_scale", 1.0)),
             min_margin_pct=float(_get(raw, "markup.min_margin_pct", 5.0)),
             rounding=base_round,
             rounding_bands=bands,
@@ -216,6 +218,8 @@ class AppConfig:
             raise ConfigError("run.period_days must be a positive integer")
         if not 0 < self.layer_coverage_pct <= 100:
             raise ConfigError("costing.layer_coverage_pct must be in (0, 100]")
+        if self.markup_value_scale <= 0:
+            raise ConfigError("markup.value_scale must be greater than zero")
         if self.markup_basis not in VALID_BASIS:
             raise ConfigError(f"markup.basis must be one of {sorted(VALID_BASIS)}")
         if self.markup_basis == "margin" and self.default_pct >= 100:

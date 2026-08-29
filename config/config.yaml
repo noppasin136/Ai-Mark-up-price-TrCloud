@@ -39,7 +39,9 @@ costing:
   # Cost column to use. See column_mapping.yaml for how these map to GR2 headers.
   #   unit_cost      -> purchase price per unit only
   #   landed_cost    -> unit cost + freight/duty/other landed components
-  cost_basis: landed_cost
+  # This ERP's GR2 has no freight/duty columns, so unit_cost and landed_cost
+  # are identical here. Left as unit_cost to say plainly what is being used.
+  cost_basis: unit_cost
 
   # Drop receipt lines with zero or negative quantity/cost before costing.
   drop_nonpositive: true
@@ -60,6 +62,11 @@ markup:
 
   # Applied when nothing in the chain matches.
   default_pct: 30.0
+
+  # Multiplier applied to the Markup column on load, to express it as a percent.
+  # This ERP's list stores fractions (0.12 meaning 12%), so the scale is 100.
+  # Set to 1 if your list already holds whole percentages (12 meaning 12%).
+  value_scale: 100
 
   # Interpretation of the percentage in the markup list:
   #   cost_plus -> price = cost * (1 + pct/100)          e.g. 30% on cost 100 -> 130.00

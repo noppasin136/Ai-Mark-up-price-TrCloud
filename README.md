@@ -36,10 +36,13 @@ header spelling to the candidate list and the engine finds it.
 
 | File | What it provides | Required columns |
 |---|---|---|
-| `GR2.xlsx` | Goods receipts — the cost source | SKU, GR date, qty, unit cost |
-| `W10.xlsx` | Current sale price, UOM, parallel unit, category | SKU, price |
-| `markup_list.xlsx` | Markup % by product group | key, markup % |
-| `sale_list.xlsx` *(optional)* | Which SKUs to price and in which unit | SKU |
+| `GR2*.xlsx` | Goods receipts — the cost source | SKU, GR date, qty, unit cost |
+| `W10*.xlsx` | Every sellable unit per SKU, with coefficients | SKU, unit |
+| `markup_list*.xlsx` | Markup per SKU or product group | key, markup |
+| `sale_list*.xlsx` *(optional)* | Which SKUs to price and in which unit | SKU |
+
+W10 carries **one row per SKU and unit**, not one per SKU. That is what makes
+cost conversion between units possible, and where the base unit is identified.
 
 ## Output
 
@@ -58,22 +61,30 @@ Rows that trip a blocking guardrail never reach the Price Upload sheet.
 
 ## Commands
 
-Everyday use is two commands:
+Everyday use is four commands, in this order:
 
 ```bash
 markup check      # is data/input/ ready? which columns mapped?
+markup review     # any SKU whose selling unit and receipt unit disagree
 markup update     # price everything, write the workbook, record the run
 markup report     # summary, category rollup, and a diff vs the previous run
 ```
 
-`update` finds the ERP files by their standard names in `data/input/`, so no
-paths are needed. Every run is snapshotted, which is what lets `report` compare
-this month against last month.
+`update` finds the ERP files by prefix in `data/input/`, so the long names the
+ERP exports (`GR2_รายงานใบรับสินค้าแสดงต้นทุน_....xlsx`) work unrenamed. Every
+run is snapshotted, which is what lets `report` compare this month against last.
+
+`review` is the safety gate. Cost is recorded per unit *received* and price is
+published per unit *sold*; where those differ the conversion has to be right,
+and only a person who knows the product can confirm it. Anything questionable
+goes to `config/unit_review.xlsx` and stays off the upload sheet until you set
+its Decision. See [INSTRUCTIONS.md](INSTRUCTIONS.md#unit-review).
 
 Supporting commands:
 
 ```bash
 markup runs                             # list recorded runs
+markup review --show-all                # every review entry, decided or not
 markup validate                         # check config.yaml for contradictions
 markup methods                          # list costing methods and rounding rules
 markup update --period 30 --method fifo # override parameters for one run

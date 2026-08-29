@@ -62,44 +62,52 @@ def build():
             })
 
         current = round(base_cost * random.uniform(1.15, 1.55), 0)
+        # W10 holds one row per SKU *and unit*: the base unit, then any parallel
+        # unit with the number of base units it contains.
         w10_rows.append({
-            "Item Code": sku,
-            "Item Name": name,
-            "Sales Unit": uom,
-            "Sale Price": current,
-            "Parallel Unit": par_uom,
-            "Pack Size": factor,
-            "Parallel Price": round(current * factor * 0.97, 0) if par_uom else None,
-            "Product Group": cat,
-            "Sub Group": f"{cat}-{(i % 3) + 1}",
-            "Division": "RETAIL",
-            "Brand": f"Brand {chr(65 + (i % 6))}",
-            "Item Status": "Active",
+            "Item Code": sku, "Item Name": name, "Sales Unit": uom,
+            "Ccoefficient": 1, "Is Main": 1, "Sale Price": current,
+            "Product Group": cat, "Sub Group": f"{cat}-{(i % 3) + 1}",
+            "Division": "RETAIL", "Item Status": "Active",
         })
+        if par_uom:
+            w10_rows.append({
+                "Item Code": sku, "Item Name": name, "Sales Unit": par_uom,
+                "Ccoefficient": factor, "Is Main": 0,
+                "Sale Price": round(current * factor * 0.97, 0),
+                "Product Group": cat, "Sub Group": f"{cat}-{(i % 3) + 1}",
+                "Division": "RETAIL", "Item Status": "Active",
+            })
         sale_rows.append({
             "Item Code": sku, "Sale Unit": uom, "Item Name": name,
+            "Selling Price": current,
             "Include": "N" if i % 20 == 0 else "Y",
         })
 
+    # Markup is stored as a FRACTION (0.25 = 25%), matching the real ERP export.
+    # config.yaml's markup.value_scale turns it back into a percentage on load.
     markup_rows = [
-        {"Level": "category", "Key": k, "Markup %": pct, "Note": f"{label} standard"}
+        {"Level": "category", "Key": k, "Markup %": pct / 100, "Note": f"{label} standard"}
         for k, (label, pct) in CATEGORIES.items()
     ]
     markup_rows += [
-        {"Level": "subcategory", "Key": "PCR-1", "Markup %": 50.0, "Note": "Premium sub-group"},
-        {"Level": "sku", "Key": "BEV-0003", "Markup %": 18.0, "Note": "KVI — price-sensitive"},
-        {"Level": "department", "Key": "RETAIL", "Markup %": 28.0, "Note": "Catch-all"},
+        {"Level": "subcategory", "Key": "PCR-1", "Markup %": 0.50, "Note": "Premium sub-group"},
+        {"Level": "sku", "Key": "BEV-0003", "Markup %": 0.18, "Note": "KVI — price-sensitive"},
+        {"Level": "department", "Key": "RETAIL", "Markup %": 0.28, "Note": "Catch-all"},
     ]
 
     OUT.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(gr_rows).to_excel(OUT / "GR2_sample.xlsx", index=False)
-    pd.DataFrame(w10_rows).to_excel(OUT / "W10_sample.xlsx", index=False)
-    pd.DataFrame(markup_rows).to_excel(OUT / "markup_list_sample.xlsx", index=False)
-    pd.DataFrame(sale_rows).to_excel(OUT / "sale_list_sample.xlsx", index=False)
+    # Sheet names match config/column_mapping.yaml, as the real exports do.
+    pd.DataFrame(gr_rows).to_excel(OUT / "GR2_sample.xlsx", sheet_name="data", index=False)
+    pd.DataFrame(w10_rows).to_excel(OUT / "W10_sample.xlsx", sheet_name="data", index=False)
+    pd.DataFrame(markup_rows).to_excel(
+        OUT / "markup_list_sample.xlsx", sheet_name="SellingPrice", index=False)
+    pd.DataFrame(sale_rows).to_excel(
+        OUT / "sale_list_sample.xlsx", sheet_name="SellingPrice", index=False)
 
     print(f"Sample data written to {OUT}")
     print(f"  GR2  {len(gr_rows):>4} receipt lines")
-    print(f"  W10  {len(w10_rows):>4} SKUs")
+    print(f"  W10  {len(w10_rows):>4} unit rows")
     print(f"  Markup rules {len(markup_rows)}")
 
 

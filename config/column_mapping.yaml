@@ -1,61 +1,69 @@
 # =============================================================================
-# ERP COLUMN MAPPING
+# ERP COLUMN MAPPING  —  configured for the Spicy Cat Thai ERP exports
 # Left  = canonical name the engine uses internally (do NOT rename these)
-# Right = list of possible header spellings in your ERP export (case-insensitive,
-#         whitespace/underscore tolerant). Add your real headers to each list.
+# Right = header spellings to look for (case-insensitive, space/underscore
+#         tolerant). Both the Thai headers and English fallbacks are listed, so
+#         the same config works if the report language is ever switched.
 # =============================================================================
 
-gr2:                    # Goods Receipt report — the cost source
-  sheet: 0              # sheet name or 0-based index
-  header_row: 0         # 0-based row index holding the headers
-  columns:
-    sku:            [SKU, Item Code, Item No, Product Code, Material]
-    product_name:   [Product Name, Item Name, Description, Material Description]
-    receipt_date:   [GR Date, Receipt Date, Posting Date, Doc Date, Document Date]
-    receipt_no:     [GR No, GR Document, Receipt No, Doc No]
-    qty:            [Qty, Quantity, GR Qty, Received Qty]
-    uom:            [UOM, Unit, Base Unit, Unit of Measure]
-    unit_cost:      [Unit Cost, Unit Price, Purchase Price, Net Price]
-    total_cost:     [Total Cost, Amount, Net Amount, Line Amount]
-    freight:        [Freight, Freight Cost, Transport]
-    duty:           [Duty, Import Duty, Tax Cost]
-    other_landed:   [Other Cost, Landed Other, Misc Cost]
-    currency:       [Currency, Curr, CCY]
-    supplier:       [Supplier, Vendor, Vendor Name]
-
-w10:                    # Current selling price report
-  sheet: 0
+gr2:                          # Goods receipt report — the cost source
+  sheet: data
   header_row: 0
   columns:
-    sku:                [SKU, Item Code, Item No, Product Code]
-    product_name:       [Product Name, Item Name, Description]
-    uom:                [UOM, Sales Unit, Selling Unit, Base Unit]
-    current_price:      [Price, Sale Price, Selling Price, Unit Price, Retail Price]
-    parallel_uom:       [Parallel Unit, Parallel UOM, Alt Unit, Secondary Unit, Pack Unit]
-    parallel_price:     [Parallel Price, Alt Price, Pack Price]
-    conversion_factor:  [Conversion, Conv Factor, Pack Size, Units Per Pack, Ratio]
-    category:           [Category, Product Group, Item Group, Merch Group]
-    subcategory:        [Subcategory, Sub Group, Class]
-    department:         [Department, Division, Dept]
-    brand:              [Brand, Brand Name]
-    status:             [Status, Item Status, Active]
+    sku:            [รหัสสินค้า, SKU, Item Code, Product Code]
+    product_name:   [ชื่อสินค้า, Product Name, Item Name, Description]
+    category:       [กลุ่มสินค้า, Category, Product Group, Item Group]
+    receipt_date:   [วันที่, GR Date, Receipt Date, Posting Date, Doc Date]
+    receipt_no:     [เลขที่เอกสาร, GR No, Doc No, Document No]
+    doc_type:       [ประเภทเอกสาร, Doc Type, Document Type]
+    qty:            [จำนวน, Qty, Quantity, Received Qty]
+    uom:            [หน่วย, UOM, Unit, Unit of Measure]
+    unit_cost:      [ต้นทุนต่อหน่วย, Unit Cost, Unit Price, Purchase Price]
+    total_cost:     [ต้นทุนรวม, Total Cost, Amount, Line Amount]
+    freight:        [ค่าขนส่ง, Freight, Freight Cost]
+    duty:           [ภาษีนำเข้า, Duty, Import Duty]
+    other_landed:   [ค่าใช้จ่ายอื่น, Other Cost, Landed Other]
+    currency:       [Currency, สกุลเงิน, Curr]
+    supplier:       [ชื่อ, Supplier, Vendor, Vendor Name]
 
-markup_list:            # Your markup master
-  sheet: 0
+w10:                          # Unit master — one row per SKU *and unit*
+  sheet: data
   header_row: 0
   columns:
-    level:          [Level, Rule Level, Type]        # sku|subcategory|category|department
-    key:            [Key, Code, Value, Group Code]   # the matching value for that level
-    markup_pct:     [Markup, Markup %, Markup Pct, Percent, Margin %]
-    basis:          [Basis, Method]                  # optional per-row: cost_plus|margin
-    min_margin_pct: [Min Margin, Floor Margin]       # optional per-row override
-    note:           [Note, Remark, Comment]
+    sku:                [รหัสสินค้า, SKU, Item Code, Product Code]
+    product_name:       [ชื่อสินค้า, Product Name, Item Name]
+    uom:                [หน่วย, UOM, Unit, Sales Unit, Selling Unit]
+    conversion_factor:  [Ccoefficient, Coefficient, Conversion, Conv Factor, Pack Size]
+    is_base_unit:       [เป็นหน่วยหลัก, Is Main, Is Base Unit, Base Unit Flag]
+    current_price:      [ราคาขาย, Sale Price, Selling Price, Price]
+    buy_price:          [ราคาซื้อ, Buy Price, Purchase Price]
+    category:           [กลุ่มสินค้า, Category, Product Group, Item Group]
+    subcategory:        [กลุ่มย่อย, Subcategory, Sub Group]
+    department:         [แผนก, Department, Division]
 
-sale_list:              # Which SKUs to price and in which selling unit
-  sheet: 0
+markup_list:                  # Markup master — one row per SKU
+  sheet: SellingPrice
   header_row: 0
   columns:
-    sku:            [SKU, Item Code, Item No, Product Code]
-    sale_uom:       [Unit, Sale Unit, Selling Unit, UOM]
-    product_name:   [Product Name, Item Name, Description]
+    # Optional. Absent -> every row is treated as a SKU-level rule, which is
+    # what a list with one row per product code means.
+    level:          [Level, Rule Level, Type]
+    key:            [Code, รหัสสินค้า, SKU, Item Code, Key]
+    product_name:   [Product Name, ชื่อสินค้า, Item Name]
+    sale_uom:       [Sale Unit, หน่วยขาย, Selling Unit, Unit]
+    current_price:  [Selling Price, ราคาขาย, Sale Price]
+    category:       [Category, กลุ่มสินค้า, Product Group]
+    markup_pct:     [Markup, Markup %, มาร์กอัพ, Percent]
+    basis:          [Basis, Method]
+    min_margin_pct: [Min Margin, Floor Margin]
+    note:           [Note, Remark, Comment, หมายเหตุ]
+
+sale_list:                    # Scope — which SKUs to price and in which unit
+  sheet: SellingPrice
+  header_row: 0
+  columns:
+    sku:            [Code, รหัสสินค้า, SKU, Item Code]
+    sale_uom:       [Sale Unit, หน่วยขาย, Selling Unit, Unit]
+    current_price:  [Selling Price, ราคาขาย, Sale Price]
+    product_name:   [Product Name, ชื่อสินค้า, Item Name]
     include:        [Include, Active, Price Flag]
