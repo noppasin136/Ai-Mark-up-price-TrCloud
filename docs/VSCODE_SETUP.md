@@ -34,8 +34,18 @@ the test suite.
 First run takes a few minutes because pandas is a large download. Later runs
 take seconds.
 
-> If the task does not appear, run `setup.bat` by double-clicking it in File
-> Explorer instead.
+> If the task does not appear, run it yourself. In a PowerShell terminal
+> (`` Ctrl+` ``), from the project folder:
+>
+> ```powershell
+> .\setup.ps1
+> ```
+>
+> The leading `.\` is not optional — PowerShell refuses to run a script from the
+> current folder without it, and reports `The term 'setup.ps1' is not
+> recognized`. If the execution policy blocks it, use `.\setup.bat`, which works
+> around that for the one run. Double-clicking `setup.bat` in File Explorer works
+> too.
 
 ### 4. Point VS Code at the new environment
 
@@ -150,7 +160,8 @@ scripts\       audit and repair tools
 |---|---|---|
 | `ModuleNotFoundError: No module named 'pandas'` | VS Code is using the wrong Python | Select Interpreter → the `.venv` one, then open a new terminal |
 | `markup : The term 'markup' is not recognized` | The environment is not activated in this terminal | `.\.venv\Scripts\Activate.ps1`, or use `python -m markup ...` |
-| `running scripts is disabled on this system` | PowerShell's execution policy | Double-click `setup.bat` instead, or run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once |
+| `setup.bat : The term 'setup.bat' is not recognized` | PowerShell will not run a script from the current folder without a path | Type `.\setup.ps1` (or `.\setup.bat`) — the leading `.\` is required |
+| `running scripts is disabled on this system` | PowerShell's execution policy | Run `.\setup.bat` instead, or `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once |
 | `Python was not found` | Python is not on PATH | Reinstall from python.org with **Add python.exe to PATH** ticked |
 | `Missing required input(s)` | An export is not in `data\input\` | File names must start with `GR2`, `W10`, `markup_list`, `sale_list` |
 | `missing required column(s)` | An ERP header changed | The message lists the headers it found — add the right one to `column_mapping.yaml` |
