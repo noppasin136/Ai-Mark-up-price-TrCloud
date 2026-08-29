@@ -12,13 +12,22 @@ sale list (optional)  ─┘
 
 ## Quick start
 
-```bash
-python -m venv .venv && . .venv/Scripts/activate     # Windows
-pip install -r requirements.txt
+**Windows / VS Code** — run `setup.bat`, or in VS Code use
+Terminal > Run Task > "Setup: create environment". Full walkthrough:
+[docs/VSCODE_SETUP.md](docs/VSCODE_SETUP.md).
+
+Manually, in PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
 pip install -e .
 
-python scripts/make_sample_data.py                   # optional: sample inputs
-markup run --period 90 --method weighted_average
+markup check
+markup review
+markup update
+markup report
 ```
 
 The workbook lands in `data/output/`.

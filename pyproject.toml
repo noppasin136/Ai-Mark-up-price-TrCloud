@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "markup-pricing"
-version = "0.1.0"
+version = "0.3.0"
 description = "Config-driven retail price markup engine over ERP GR2 / W10 extracts"
 requires-python = ">=3.10"
 dependencies = ["pandas>=2.0", "openpyxl>=3.1", "PyYAML>=6.0", "click>=8.1"]

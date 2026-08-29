@@ -1,0 +1,109 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Setup: create environment",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\setup.ps1"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "1. Check inputs",
+      "detail": "Are the ERP files present and do the columns map?",
+      "type": "shell",
+      "command": "markup",
+      "args": ["check"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "2. Review units",
+      "detail": "SKUs whose selling unit and receipt unit disagree",
+      "type": "shell",
+      "command": "markup",
+      "args": ["review"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "3. Update prices",
+      "detail": "Price everything, write the workbook, record the run",
+      "type": "shell",
+      "command": "markup",
+      "args": ["update"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "4. Report",
+      "detail": "Summary, category rollup, and a diff vs the previous run",
+      "type": "shell",
+      "command": "markup",
+      "args": ["report"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Update: choose period and method",
+      "type": "shell",
+      "command": "markup",
+      "args": ["update", "--period", "${input:period}", "--method", "${input:method}"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Audit input data",
+      "detail": "Full data-quality report on the ERP exports",
+      "type": "shell",
+      "command": "python",
+      "args": ["scripts/audit_inputs.py"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Open the latest output folder",
+      "type": "shell",
+      "command": "explorer",
+      "args": [".\\data\\output"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "never" }
+    },
+    {
+      "label": "Run tests",
+      "type": "shell",
+      "command": "pytest",
+      "args": ["-q"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "period",
+      "type": "pickString",
+      "description": "How many days of goods receipts to cost from",
+      "options": ["30", "60", "90", "120"],
+      "default": "90"
+    },
+    {
+      "id": "method",
+      "type": "pickString",
+      "description": "Costing method",
+      "options": ["weighted_average", "fifo", "lifo", "last_cost", "highest_cost", "lowest_cost"],
+      "default": "weighted_average"
+    }
+  ]
+}

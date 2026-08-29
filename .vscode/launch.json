@@ -1,0 +1,140 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "1. Check inputs",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "markup",
+      "args": ["check"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "2. Review units",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "markup",
+      "args": ["review"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "3. Update prices",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "markup",
+      "args": ["update"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "4. Report",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "markup",
+      "args": ["report"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Update — choose period and method",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "markup",
+      "args": [
+        "update",
+        "--period", "${input:period}",
+        "--method", "${input:method}"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Update — dry run (no file written)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "markup",
+      "args": ["run", "--dry-run"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Validate config",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "markup",
+      "args": ["validate"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "List recorded runs",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "markup",
+      "args": ["runs"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Audit input data",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/audit_inputs.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Fix sale units (dry run)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/fix_sale_units.py",
+      "args": ["--dry-run"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Debug the current file",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "period",
+      "type": "pickString",
+      "description": "How many days of goods receipts to cost from",
+      "options": ["30", "60", "90", "120"],
+      "default": "90"
+    },
+    {
+      "id": "method",
+      "type": "pickString",
+      "description": "Costing method",
+      "options": [
+        "weighted_average",
+        "fifo",
+        "lifo",
+        "last_cost",
+        "highest_cost",
+        "lowest_cost"
+      ],
+      "default": "weighted_average"
+    }
+  ]
+}

@@ -14,7 +14,7 @@ _verify*
 # is what it is. It is excluded above because it also carries costs and selling
 # prices, which do not belong in a public repository. If this repo is private,
 # uncomment the next line to version the decisions with the code:
-# !config/unit_review.xlsx
+!config/unit_review.xlsx
 *.csv
 !tests/fixtures/*.csv
 
@@ -32,7 +32,14 @@ env/
 htmlcov/
 
 # Editors / OS
-.vscode/
+# The VS Code workspace config IS part of the project — it is what gives the
+# next person the tasks, debug entries and interpreter settings. Only the
+# machine-specific bits are excluded.
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 .idea/
 .DS_Store
 Thumbs.db

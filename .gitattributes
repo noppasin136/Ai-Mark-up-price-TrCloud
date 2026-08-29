@@ -1,0 +1,12 @@
+# Keep line endings stable across Windows and any Linux/CI checkout.
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF or cmd.exe and PowerShell can misread them.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary — never normalise, never diff as text.
+*.xlsx binary
+*.xls  binary
+*.xlsb binary
