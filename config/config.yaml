@@ -1,0 +1,153 @@
+# =============================================================================
+# MARKUP PRICING ENGINE — MAIN CONTROL FILE
+# This is the ONLY file you normally edit. See INSTRUCTIONS.md for full detail.
+# =============================================================================
+
+run:
+  # Anchor date for the costing window. null = today's date.
+  # Format: YYYY-MM-DD
+  as_of_date: null
+
+  # >>> PERIOD PARAMETER <<<  How many days of goods receipts to cost from.
+  # Typical values: 30, 60, 90. Any positive integer works.
+  period_days: 90
+
+  currency: THB
+  # Decimal places carried internally before the rounding rules are applied.
+  precision: 4
+
+
+costing:
+  # >>> COSTING METHOD PARAMETER <<<
+  # One of: fifo | lifo | weighted_average | last_cost | highest_cost | lowest_cost
+  method: weighted_average
+
+  # Used when the primary method cannot produce a cost for a SKU
+  # (e.g. FIFO needs layers, but only one receipt exists).
+  # Set to null to leave such SKUs uncosted and route them to the Exceptions sheet.
+  fallback_method: last_cost
+
+  # --- Layer coverage (FIFO / LIFO only) ------------------------------------
+  # GR2 contains receipts, not issues, so there is no true consumption ledger.
+  # FIFO therefore means "cost from the OLDEST receipt layers in the window" and
+  # LIFO "cost from the NEWEST". This setting controls how much of the period's
+  # receipt quantity is blended into the answer.
+  #   100 -> blend every layer (FIFO == LIFO == weighted average)
+  #    30 -> blend only the oldest/newest 30% of the period quantity
+  layer_coverage_pct: 30
+
+  # Cost column to use. See column_mapping.yaml for how these map to GR2 headers.
+  #   unit_cost      -> purchase price per unit only
+  #   landed_cost    -> unit cost + freight/duty/other landed components
+  cost_basis: landed_cost
+
+  # Drop receipt lines with zero or negative quantity/cost before costing.
+  drop_nonpositive: true
+
+  # --- Outlier suppression ---------------------------------------------------
+  # Guards against a keying error in one GR line dragging the whole cost.
+  outlier_filter:
+    enabled: true
+    method: iqr        # iqr | zscore | none
+    threshold: 1.5     # IQR multiplier, or z-score cutoff
+    min_lines: 5       # skip filtering when a SKU has fewer lines than this
+
+
+markup:
+  # Markup rules are keyed on PRODUCT GROUP / CATEGORY.
+  # The engine walks this chain in order and uses the first rule that matches.
+  fallback_chain: [sku, subcategory, category, department, default]
+
+  # Applied when nothing in the chain matches.
+  default_pct: 30.0
+
+  # Interpretation of the percentage in the markup list:
+  #   cost_plus -> price = cost * (1 + pct/100)          e.g. 30% on cost 100 -> 130.00
+  #   margin    -> price = cost / (1 - pct/100)          e.g. 30% on cost 100 -> 142.86
+  basis: cost_plus
+
+  # Refuse to publish a price whose gross margin falls under this floor.
+  # Such rows are flagged in Exceptions rather than silently shipped.
+  min_margin_pct: 5.0
+
+
+rounding:
+  # >>> ROUNDING PARAMETER <<<
+  # strategy: none | nearest | step_ceiling | step_floor | psychological
+  strategy: nearest
+
+  # For nearest / step_ceiling / step_floor — the increment to snap to.
+  step: 1.00
+
+  # For strategy: nearest — how ties and direction are handled.
+  #   half_up | up | down
+  direction: half_up
+
+  # For strategy: psychological — snap to the next value ending in one of these.
+  endings: [0.95, 0.99]
+
+  # Optional cost-band overrides. When use_bands is true the first band whose
+  # max_cost covers the SKU's cost wins and the settings above are ignored.
+  # Leave false for one simple rule everywhere.
+  use_bands: false
+
+  # max_cost: null means "no upper bound".
+  bands:
+    - {max_cost: 50,    strategy: nearest,       step: 0.50}
+    - {max_cost: 500,   strategy: nearest,       step: 1.00}
+    - {max_cost: null,  strategy: step_ceiling,  step: 5.00}
+
+
+parallel_unit:
+  # Derive a second selling price for the parallel / secondary UOM.
+  enabled: true
+
+  # per_unit -> parallel price = base price * conversion_factor, then rounded
+  # (conversion_factor = how many base units make one parallel unit)
+  method: per_unit
+
+  # Round the parallel price independently rather than multiplying a rounded base.
+  round_separately: true
+  strategy: nearest
+  step: 1.00
+
+  # Optional discount for buying the larger unit, in percent. 0 = none.
+  bulk_discount_pct: 0.0
+
+
+guardrails:
+  # Movement limits vs. the current ERP price from W10. Breaches are flagged,
+  # and — if clamp is true — the price is capped at the limit instead of dropped.
+  max_increase_pct: 25.0
+  max_decrease_pct: 10.0
+  clamp: false
+
+  # Flag any suggested price that lands below the current selling price.
+  flag_price_decrease: true
+
+  # Ignore price moves smaller than this (avoids churning the ERP with noise).
+  min_change_pct: 0.5
+
+
+output:
+  directory: data/output
+  # Placeholders: {method} {period} {timestamp} {as_of}
+  filename: markup_{method}_{period}d_{timestamp}.xlsx
+
+  # Sheets to emit, in order. Remove any you do not want.
+  sheets: [price_upload, detail, exceptions, cost_audit, run_summary]
+
+  # The lean, ERP-import-ready sheet: SKU, selling unit, sale price.
+  price_upload:
+    sheet_name: "Price Upload"
+    include_parallel_rows: true   # emit a second row per SKU for the parallel unit
+    only_changed: true            # skip SKUs whose price did not move
+    exclude_exceptions: true      # never upload a row that failed a guardrail
+
+  freeze_header: true
+  autofilter: true
+
+
+logging:
+  level: INFO          # DEBUG | INFO | WARNING | ERROR
+  file: data/output/run.log

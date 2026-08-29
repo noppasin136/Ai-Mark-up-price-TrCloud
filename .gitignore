@@ -1,0 +1,33 @@
+# Data — never commit ERP extracts or priced output
+data/input/*
+data/output/*
+!data/input/.gitkeep
+!data/output/.gitkeep
+!data/input/samples/
+*.xlsx
+*.xls
+*.xlsb
+*.tgz
+_verify*
+*.csv
+!tests/fixtures/*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+~$*
