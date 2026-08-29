@@ -2,11 +2,12 @@
     Markup Pricing Engine — Windows setup
 
     Creates a private Python environment for this folder and installs everything
-    the engine needs. Safe to run again at any time; it will reuse or repair the
+    the engine needs. Safe to run again at any time; it reuses or repairs the
     existing environment rather than starting over.
 
-    Run it from VS Code:  Terminal > Run Task > "Setup: create environment"
-    Or from PowerShell:   .\setup.ps1
+    From VS Code:    Terminal > Run Task > "Setup: create environment"
+    From PowerShell: .\setup.ps1
+    Policy blocked?  .\setup.bat
 #>
 
 [CmdletBinding()]
@@ -30,42 +31,60 @@ Say "Folder: $root"
 Say ("-" * 62)
 
 # --- 1. Find a usable Python ------------------------------------------------
+# Ask each candidate for its own absolute path and version. Everything after
+# this point uses that path directly: the 'py' launcher is only a way to FIND
+# an interpreter, never a way to run one, because its argument forwarding
+# varies between installations.
 Say ""
 Say "1. Looking for Python 3.10 or newer"
 
-$python = $null
-foreach ($candidate in @(
-    @{ Exe = 'py';     Args = @('-3', '--version') },
-    @{ Exe = 'python'; Args = @('--version') },
-    @{ Exe = 'python3'; Args = @('--version') }
-)) {
-    if (-not (Get-Command $candidate.Exe -ErrorAction SilentlyContinue)) { continue }
+# No quotes in this snippet — quoting rules differ between PowerShell hosts.
+$probe = 'import sys;print(sys.executable);print(sys.version_info[0]);print(sys.version_info[1])'
+
+function Get-PythonInfo {
+    param([string]$Command, [string]$VersionFlag)
+    if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) { return $null }
     try {
-        $raw = & $candidate.Exe @($candidate.Args) 2>&1 | Out-String
-        if ($raw -match 'Python (\d+)\.(\d+)') {
-            $major = [int]$Matches[1]; $minor = [int]$Matches[2]
-            if ($major -eq 3 -and $minor -ge 10) {
-                $python = $candidate
-                Good "$($raw.Trim())  (via '$($candidate.Exe)')"
-                break
-            }
-            Warn "$($raw.Trim()) found via '$($candidate.Exe)' — too old, need 3.10+"
-        }
-    } catch { }
+        if ($VersionFlag) { $raw = & $Command $VersionFlag -c $probe 2>&1 | Out-String }
+        else              { $raw = & $Command            -c $probe 2>&1 | Out-String }
+    } catch { return $null }
+
+    $lines = ($raw -split "`r?`n") | Where-Object { $_.Trim() -ne '' }
+    if ($lines.Count -lt 3) { return $null }
+    $exe = $lines[0].Trim()
+    if (-not (Test-Path $exe)) { return $null }
+    $major = 0; $minor = 0
+    if (-not [int]::TryParse($lines[1].Trim(), [ref]$major)) { return $null }
+    if (-not [int]::TryParse($lines[2].Trim(), [ref]$minor)) { return $null }
+    return [pscustomobject]@{ Exe = $exe; Major = $major; Minor = $minor; Via = $Command }
+}
+
+$python = $null
+foreach ($try in @(
+    @{ Command = 'py';      Flag = '-3' },
+    @{ Command = 'python';  Flag = ''   },
+    @{ Command = 'python3'; Flag = ''   }
+)) {
+    $found = Get-PythonInfo -Command $try.Command -VersionFlag $try.Flag
+    if (-not $found) { continue }
+    if ($found.Major -eq 3 -and $found.Minor -ge 10) {
+        $python = $found
+        Good "Python $($found.Major).$($found.Minor)  ($($found.Exe))"
+        break
+    }
+    Warn "Python $($found.Major).$($found.Minor) found via '$($try.Command)' — too old, need 3.10+"
 }
 
 if (-not $python) {
     Bad "No Python 3.10 or newer found."
     Say ""
     Say "  Install it from https://www.python.org/downloads/"
-    Say "  During installation, tick 'Add python.exe to PATH' on the first screen."
+    Say "  Tick 'Add python.exe to PATH' on the first screen of the installer."
     Say "  Then close every PowerShell window, open a new one, and run this again."
     exit 1
 }
 
-# The launcher needs its version flag; a bare python.exe does not.
-$pyExe  = $python.Exe
-$pyArgs = if ($pyExe -eq 'py') { @('-3') } else { @() }
+$pythonExe = $python.Exe
 
 # --- 2. Virtual environment -------------------------------------------------
 Say ""
@@ -86,10 +105,11 @@ if (Test-Path $venvPython) {
         Warn ".venv exists but has no python.exe — rebuilding it"
         Remove-Item $venv -Recurse -Force
     }
-    & $pyExe @($pyArgs + @('-m', 'venv', $venv))
+    & $pythonExe -m venv $venv
     if (-not (Test-Path $venvPython)) {
         Bad "Could not create the virtual environment."
-        Say "  Try:  $pyExe $pyArgs -m ensurepip --upgrade"
+        Say "  Try running this by hand to see the underlying error:"
+        Say "    & '$pythonExe' -m venv '$venv'"
         exit 1
     }
     Good "Created .venv"
@@ -98,7 +118,7 @@ if (Test-Path $venvPython) {
 # --- 3. Dependencies --------------------------------------------------------
 Say ""
 Say "3. Installing dependencies"
-Say "   (first run downloads pandas and openpyxl — this can take a few minutes)"
+Say "   (the first run downloads pandas and openpyxl — this can take a few minutes)"
 
 & $venvPython -m pip install --upgrade pip --quiet
 if ($LASTEXITCODE -ne 0) { Bad "Could not upgrade pip."; exit 1 }
@@ -107,16 +127,16 @@ Good "pip up to date"
 & $venvPython -m pip install -r (Join-Path $root 'requirements-dev.txt') --quiet
 if ($LASTEXITCODE -ne 0) {
     Bad "Dependency install failed."
-    Say "  If your company network blocks PyPI, you will need its proxy settings,"
-    Say "  or an internal package index, before this can complete."
+    Say "  If your network blocks PyPI, you will need the company proxy first:"
+    Say "    & '$venvPython' -m pip install --proxy http://proxy:port -r requirements-dev.txt"
     exit 1
 }
 Good "pandas, openpyxl, PyYAML, click, pytest, ruff"
 
 & $venvPython -m pip install -e $root --quiet
 if ($LASTEXITCODE -ne 0) {
-    Warn "Editable install failed — the 'markup' shortcut will not exist."
-    Warn "Use 'python -m markup ...' instead. Everything else still works."
+    Warn "Editable install failed — the bare 'markup' shortcut will not exist."
+    Warn "Use '.\markup.bat <command>' instead. Everything else still works."
 } else {
     Good "'markup' command registered"
 }
@@ -149,12 +169,9 @@ Say "In VS Code:"
 Say "  Ctrl+Shift+P > 'Python: Select Interpreter' > the one inside .venv"
 Say "  Then Terminal > Run Task, or press F5 and pick a command."
 Say ""
-Say "In this terminal, activate the environment first:"
-Say "  .\.venv\Scripts\Activate.ps1"
-Say ""
-Say "Then the four commands, in order:"
-Say "  markup check     is data\input\ ready?"
-Say "  markup review    units needing your decision"
-Say "  markup update    price everything"
-Say "  markup report    summary and comparison"
+Say "In this terminal — no activation needed:"
+Say "  .\markup.bat check     is data\input\ ready?"
+Say "  .\markup.bat review    units needing your decision"
+Say "  .\markup.bat update    price everything"
+Say "  .\markup.bat report    summary and comparison"
 Say ""

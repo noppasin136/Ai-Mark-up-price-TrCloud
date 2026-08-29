@@ -183,6 +183,7 @@ scripts\       audit and repair tools
 | `running scripts is disabled on this system` | PowerShell's execution policy — see below | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `.\setup.bat` and `.\markup.bat` |
 | `Activate.ps1 cannot be loaded` | Same execution policy, blocking environment activation | Same fix, or skip activation entirely with `.\markup.bat <command>` |
 | `Python was not found` | Python is not on PATH | Reinstall from python.org with **Add python.exe to PATH** ticked |
+| `Unknown option: -3` during setup | The `py` launcher on this machine does not forward its arguments | Fixed in the current `setup.ps1`, which resolves the interpreter's real path and calls it directly. Pull the latest and re-run |
 | `Missing required input(s)` | An export is not in `data\input\` | File names must start with `GR2`, `W10`, `markup_list`, `sale_list` |
 | `missing required column(s)` | An ERP header changed | The message lists the headers it found — add the right one to `column_mapping.yaml` |
 | `No run history yet` | `report` before `update` | Run `markup update` first |

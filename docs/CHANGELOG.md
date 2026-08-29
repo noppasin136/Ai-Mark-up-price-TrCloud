@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1
+
+- VS Code workspace: tasks, F5 debug entries, recommended extensions, and
+  interpreter/analysis settings for the src layout
+- `setup.ps1` builds the environment and self-verifies; `setup.bat` and
+  `markup.bat` wrap it for machines where PowerShell script execution is blocked
+- Tasks and debug entries call the environment's Python directly, so they work
+  regardless of the execution policy
+- Fixed: setup used the `py -3` launcher to create the virtual environment, but
+  some installations do not forward its arguments and Python received `-3`
+  itself. Setup now asks the interpreter for its own absolute path and uses that
+- `.gitattributes` keeps `.ps1` and `.bat` files as CRLF
+- Fixed: `.gitignore` excluded `.vscode/`, so none of the workspace setup would
+  have reached a clone
+
 ## 0.3.0 — unit review
 
 Cost is recorded per unit received and price is published per unit sold. Where
