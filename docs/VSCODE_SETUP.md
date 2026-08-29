@@ -83,6 +83,22 @@ You are done. The rest of this page is day-to-day use.
 **3. Update prices** is the default build task, so `Ctrl+Shift+B` runs it
 straight away.
 
+### Without activating anything
+
+If PowerShell's execution policy is locked down and you cannot change it, use the
+wrapper — it calls the environment's own Python directly, so no activation and no
+policy change is needed:
+
+```powershell
+.\markup.bat check
+.\markup.bat review
+.\markup.bat update --period 30 --method fifo
+.\markup.bat report
+```
+
+The VS Code tasks and F5 entries already work this way, so they are unaffected by
+the policy either way.
+
 ### With the debugger — F5
 
 `Ctrl+Shift+D` opens the Run and Debug panel. Pick a command from the dropdown
@@ -101,6 +117,9 @@ put a breakpoint in `src/markup/pipeline.py` and step through it.
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
+
+If that is blocked by the execution policy, either fix the policy once (below) or
+use `.\markup.bat <command>` instead, which needs no activation.
 
 Then:
 
@@ -160,8 +179,9 @@ scripts\       audit and repair tools
 |---|---|---|
 | `ModuleNotFoundError: No module named 'pandas'` | VS Code is using the wrong Python | Select Interpreter → the `.venv` one, then open a new terminal |
 | `markup : The term 'markup' is not recognized` | The environment is not activated in this terminal | `.\.venv\Scripts\Activate.ps1`, or use `python -m markup ...` |
-| `setup.bat : The term 'setup.bat' is not recognized` | PowerShell will not run a script from the current folder without a path | Type `.\setup.ps1` (or `.\setup.bat`) — the leading `.\` is required |
-| `running scripts is disabled on this system` | PowerShell's execution policy | Run `.\setup.bat` instead, or `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once |
+| `The term 'setup.ps1' is not recognized` | PowerShell will not run a script from the current folder without a path | Type `.\setup.ps1` — the leading `.\` is required |
+| `running scripts is disabled on this system` | PowerShell's execution policy — see below | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `.\setup.bat` and `.\markup.bat` |
+| `Activate.ps1 cannot be loaded` | Same execution policy, blocking environment activation | Same fix, or skip activation entirely with `.\markup.bat <command>` |
 | `Python was not found` | Python is not on PATH | Reinstall from python.org with **Add python.exe to PATH** ticked |
 | `Missing required input(s)` | An export is not in `data\input\` | File names must start with `GR2`, `W10`, `markup_list`, `sale_list` |
 | `missing required column(s)` | An ERP header changed | The message lists the headers it found — add the right one to `column_mapping.yaml` |
@@ -172,6 +192,42 @@ scripts\       audit and repair tools
 If dependency installation fails behind a corporate network, the proxy is the
 usual cause. `pip install --proxy http://your-proxy:port -r requirements-dev.txt`
 works once you have the address from IT.
+
+---
+
+## About PowerShell's execution policy
+
+Windows ships with script execution switched off. Both `setup.ps1` and the
+environment's own `Activate.ps1` are scripts, so on a fresh machine you will see:
+
+```
+running scripts is disabled on this system
+```
+
+**The clean fix**, which needs no administrator rights and changes nothing for
+any other user of the machine:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+`RemoteSigned` means scripts written locally may run, while anything downloaded
+from the internet must carry a valid signature. This is the setting Microsoft
+recommends for development machines, and it is what makes both the setup script
+and normal environment activation work.
+
+**If your IT department enforces the policy by Group Policy**, the command above
+fails with *"overridden by a policy defined at a more specific scope"*. In that
+case do not fight it — use the `.bat` wrappers, which never invoke PowerShell
+scripts at all:
+
+```powershell
+.\setup.bat                  # instead of .\setup.ps1
+.\markup.bat check           # instead of activating, then markup check
+```
+
+VS Code tasks and F5 debugging call the environment's Python directly, so they
+work regardless of the policy.
 
 ---
 

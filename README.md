@@ -12,9 +12,14 @@ sale list (optional)  ─┘
 
 ## Quick start
 
-**Windows / VS Code** — run `setup.bat`, or in VS Code use
+**Windows / VS Code** — run `.\setup.bat`, or in VS Code use
 Terminal > Run Task > "Setup: create environment". Full walkthrough:
 [docs/VSCODE_SETUP.md](docs/VSCODE_SETUP.md).
+
+Windows blocks PowerShell scripts by default. Either allow them once with
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use the `.bat`
+wrappers — `.\setup.bat` and `.\markup.bat check` — which sidestep the policy
+entirely.
 
 Manually, in PowerShell:
 
