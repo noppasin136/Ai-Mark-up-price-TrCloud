@@ -12,14 +12,21 @@ sale list (optional)  ─┘
 
 ## Quick start
 
-**Windows / VS Code** — run `.\setup.bat`, or in VS Code use
-Terminal > Run Task > "Setup: create environment". Full walkthrough:
-[docs/VSCODE_SETUP.md](docs/VSCODE_SETUP.md).
+**Windows / VS Code** — follow
+[docs/VSCODE_SETUP.md](docs/VSCODE_SETUP.md), which walks the whole thing
+through in order. The short version, in PowerShell from the project folder:
 
-Windows blocks PowerShell scripts by default. Either allow them once with
-`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use the `.bat`
-wrappers — `.\setup.bat` and `.\markup.bat check` — which sidestep the policy
-entirely.
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # Windows blocks scripts by default
+.\setup.ps1
+```
+
+Then in VS Code: `Ctrl+Shift+P` > **Python: Select Interpreter** > the one under
+`.venv`. Skipping that step is the usual cause of `ModuleNotFoundError`.
+
+If your IT department enforces the execution policy, use the `.bat` wrappers
+instead — `.\setup.bat` and `.\markup.bat check` — which never invoke a
+PowerShell script.
 
 Manually, in PowerShell:
 

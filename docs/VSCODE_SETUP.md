@@ -1,69 +1,125 @@
 # Running this in VS Code (Windows)
 
-One-time setup, then four buttons.
+Written against a real setup on a fresh Windows machine, in the order things
+actually happen — including the two places Windows gets in the way.
 
 ---
 
-## One-time setup
+## Before you start
 
-### 1. Open the folder
+- **Python 3.10 or newer.** From [python.org](https://www.python.org/downloads/),
+  with **Add python.exe to PATH** ticked on the installer's first screen.
+- **VS Code.**
+- Roughly 10 minutes, most of it waiting for pandas to download.
+
+---
+
+## Step 1 — Allow PowerShell to run scripts
+
+Do this first. Windows ships with script execution switched off, and both the
+setup script and the environment's own activation script are blocked by it. You
+will otherwise meet this twice:
+
+```
+running scripts is disabled on this system
+```
+
+In PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+`RemoteSigned` means scripts written locally may run, while anything downloaded
+from the internet must carry a valid signature. It needs no administrator
+rights, affects only your account, and is the setting Microsoft recommends for
+development machines.
+
+**If your IT department enforces the policy** the command fails with *"overridden
+by a policy defined at a more specific scope"*. Don't fight it — this project
+ships `.bat` wrappers that never invoke a PowerShell script:
+
+| Instead of | Use |
+|---|---|
+| `.\setup.ps1` | `.\setup.bat` |
+| activating, then `markup check` | `.\markup.bat check` |
+
+VS Code tasks and F5 debugging call the environment's Python directly, so they
+work either way.
+
+> **A PowerShell habit worth knowing:** it will not run a script from the current
+> folder by bare name. `setup.bat` gives *"The term 'setup.bat' is not
+> recognized"*; `.\setup.bat` works. The leading `.\` is required, and Command
+> Prompt not needing it is why this catches everyone once.
+
+---
+
+## Step 2 — Open the folder
 
 VS Code → **File > Open Folder** → `C:\Ai Mark up price`
 
 Open the folder itself, not a single file. Everything below depends on VS Code
 knowing this folder is the project.
 
-### 2. Install the recommended extensions
+---
 
-A prompt appears in the bottom right: **"This workspace has extension
+## Step 3 — Install the recommended extensions
+
+A prompt appears bottom-right: **"This workspace has extension
 recommendations"** → **Install**.
 
-If you miss it: Extensions panel (`Ctrl+Shift+X`) → type `@recommended` → install
-the list. You need **Python** and **Pylance**; the rest are conveniences. The
-Excel Viewer one lets you open the output workbooks without leaving VS Code.
+If you miss it: Extensions panel (`Ctrl+Shift+X`) → type `@recommended`. You need
+**Python** and **Pylance**; the rest are conveniences. Excel Viewer lets you open
+the output workbooks without leaving VS Code.
 
-### 3. Build the environment
+---
+
+## Step 4 — Build the environment
 
 **Terminal > Run Task…** → **Setup: create environment**
 
-This creates `.venv\` inside the project — a private Python installation just
-for this work, so nothing else on your machine is touched. It installs pandas,
-openpyxl and the rest, registers the `markup` command, and finishes by running
-the test suite.
+Or from a terminal in the project folder:
 
-First run takes a few minutes because pandas is a large download. Later runs
+```powershell
+.\setup.ps1        # or .\setup.bat if the policy is locked down
+```
+
+This creates `.venv\` inside the project — a private Python just for this work,
+so nothing else on your machine is touched. It installs pandas, openpyxl and the
+rest, registers the `markup` command, and finishes by running the test suite.
+
+The first run takes a few minutes because pandas is a large download. Later runs
 take seconds.
 
-> If the task does not appear, run it yourself. In a PowerShell terminal
-> (`` Ctrl+` ``), from the project folder:
->
-> ```powershell
-> .\setup.ps1
-> ```
->
-> The leading `.\` is not optional — PowerShell refuses to run a script from the
-> current folder without it, and reports `The term 'setup.ps1' is not
-> recognized`. If the execution policy blocks it, use `.\setup.bat`, which works
-> around that for the one run. Double-clicking `setup.bat` in File Explorer works
-> too.
+You should see it work through four numbered stages and end with **Setup
+complete**. If it stops earlier, find the message in
+[When something goes wrong](#when-something-goes-wrong) below.
 
-### 4. Point VS Code at the new environment
+---
+
+## Step 5 — Point VS Code at the new environment
 
 `Ctrl+Shift+P` → **Python: Select Interpreter** → choose the one whose path
-contains `.venv\Scripts\python.exe`. It is usually top of the list and marked
+contains `.venv\Scripts\python.exe`. It is usually top of the list, marked
 **Recommended**.
 
-This is the step people skip. Without it, VS Code uses some other Python that
-does not have pandas installed, and everything fails with `ModuleNotFoundError`.
+**This is the step people skip.** Without it VS Code uses some other Python that
+has no pandas, and every command fails with `ModuleNotFoundError`.
 
-**Close any terminal that was already open** (bin icon) so the next one picks up
-the environment.
+Then **close any terminal that was already open** (the bin icon) so the next one
+starts with the environment active.
 
-You are done. The rest of this page is day-to-day use.
+Setup is done. The rest of this page is day-to-day use.
 
 ---
 
 ## Running the four commands
+
+The flow is always the same order:
+
+```
+check  →  review  →  update  →  report
+```
 
 ### With buttons — Tasks
 
@@ -81,33 +137,17 @@ You are done. The rest of this page is day-to-day use.
 | Run tests | Confirms the engine still behaves after a change |
 
 **3. Update prices** is the default build task, so `Ctrl+Shift+B` runs it
-straight away.
-
-### Without activating anything
-
-If PowerShell's execution policy is locked down and you cannot change it, use the
-wrapper — it calls the environment's own Python directly, so no activation and no
-policy change is needed:
-
-```powershell
-.\markup.bat check
-.\markup.bat review
-.\markup.bat update --period 30 --method fifo
-.\markup.bat report
-```
-
-The VS Code tasks and F5 entries already work this way, so they are unaffected by
-the policy either way.
+directly.
 
 ### With the debugger — F5
 
-`Ctrl+Shift+D` opens the Run and Debug panel. Pick a command from the dropdown
-at the top and press **F5**.
+`Ctrl+Shift+D` opens Run and Debug. Pick a command from the dropdown and press
+**F5**.
 
-The difference from a task: you can set a **breakpoint** (click to the left of a
-line number in any `.py` file) and the program stops there so you can inspect
-what it is doing. That is how you answer "why did this SKU get that price?" —
-put a breakpoint in `src/markup/pipeline.py` and step through it.
+The difference from a task: you can set a **breakpoint** — click to the left of a
+line number in any `.py` file — and the program stops there so you can inspect
+what it is doing. That is how you answer "why did this SKU get that price?": put
+a breakpoint in `src/markup/pipeline.py` and step through.
 
 ### In the terminal
 
@@ -117,9 +157,6 @@ put a breakpoint in `src/markup/pipeline.py` and step through it.
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
-
-If that is blocked by the execution policy, either fix the policy once (below) or
-use `.\markup.bat <command>` instead, which needs no activation.
 
 Then:
 
@@ -142,19 +179,83 @@ markup runs
 
 `INSTRUCTIONS.md` documents every parameter.
 
+### Without activating anything
+
+If activation is blocked, the wrapper calls the environment's Python directly:
+
+```powershell
+.\markup.bat check
+.\markup.bat review
+.\markup.bat update --period 30 --method fifo
+.\markup.bat report
+```
+
+---
+
+## Optional — Claude in the VS Code terminal
+
+Claude Code is a separate tool that lets you work with Claude from a terminal
+inside VS Code. It is **not required** for anything above; the engine is plain
+Python.
+
+Install from PowerShell (no administrator rights needed):
+
+```powershell
+irm https://claude.ai/install.ps1 | iex
+```
+
+This is not blocked by the execution policy, because it runs in memory rather
+than as a `.ps1` file on disk. If it fails anyway,
+`winget install Anthropic.ClaudeCode` is the alternative — it registers PATH
+itself, at the cost of not auto-updating.
+
+Then:
+
+1. **Open a new PowerShell window** and run `claude --version`. A version number
+   such as `2.1.251 (Claude Code)` means it worked.
+2. **Quit VS Code completely** — File > Exit, not just closing the window — and
+   reopen. VS Code reads PATH once at launch.
+3. In the VS Code terminal: `claude`. First run sends you to the browser to log
+   in. It needs a Pro, Max, Team or Enterprise account.
+
+[Git for Windows](https://git-scm.com/downloads/win) is optional but recommended
+— it gives Claude Code Git Bash instead of PowerShell for shell commands.
+
+**If `claude` is not recognised after installing**, the binary landed but PATH
+was not updated. Check and fix:
+
+```powershell
+$dir = "$env:USERPROFILE\.local\bin"
+$exe = Join-Path $dir 'claude.exe'
+if (Test-Path $exe) {
+    & $exe --version
+    $user = [Environment]::GetEnvironmentVariable('Path','User')
+    if ($user -notlike "*$dir*") {
+        [Environment]::SetEnvironmentVariable('Path', ($user.TrimEnd(';') + ';' + $dir), 'User')
+        "PATH updated - open a new window"
+    }
+} else {
+    "Not installed - re-run the installer"
+}
+```
+
+Use `[Environment]::GetEnvironmentVariable('Path','User')` rather than
+`$env:Path` here. `$env:Path` is the machine and user paths already merged, so
+writing it back into the user scope duplicates every system entry into your
+account.
+
 ---
 
 ## Editing the settings
 
-`config\config.yaml` is the file you will change most. VS Code gives you syntax
-colouring and will underline a structural mistake in red before you run
-anything. After editing, check it:
+`config\config.yaml` is the file you will change most. VS Code colours the syntax
+and underlines a structural mistake before you run anything. After editing:
 
 ```powershell
 markup validate
 ```
 
-`config\unit_review.xlsx` is the decisions sheet. Open it in Excel rather than
+`config\unit_review.xlsx` holds your unit decisions. Open it in **Excel**, not
 VS Code — it has dropdowns that VS Code's viewer will not show.
 
 ---
@@ -177,58 +278,25 @@ scripts\       audit and repair tools
 
 | What you see | What it means | Fix |
 |---|---|---|
+| `The term 'setup.ps1' is not recognized` | PowerShell will not run a script from the current folder by bare name | `.\setup.ps1` — the leading `.\` is required |
+| `running scripts is disabled on this system` | Execution policy — see [Step 1](#step-1--allow-powershell-to-run-scripts) | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `.\setup.bat` |
+| `Activate.ps1 cannot be loaded` | Same policy, blocking environment activation | Same fix, or skip activation with `.\markup.bat <command>` |
 | `ModuleNotFoundError: No module named 'pandas'` | VS Code is using the wrong Python | Select Interpreter → the `.venv` one, then open a new terminal |
-| `markup : The term 'markup' is not recognized` | The environment is not activated in this terminal | `.\.venv\Scripts\Activate.ps1`, or use `python -m markup ...` |
-| `The term 'setup.ps1' is not recognized` | PowerShell will not run a script from the current folder without a path | Type `.\setup.ps1` — the leading `.\` is required |
-| `running scripts is disabled on this system` | PowerShell's execution policy — see below | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use `.\setup.bat` and `.\markup.bat` |
-| `Activate.ps1 cannot be loaded` | Same execution policy, blocking environment activation | Same fix, or skip activation entirely with `.\markup.bat <command>` |
+| `markup : The term 'markup' is not recognized` | Environment not activated in this terminal | `.\.venv\Scripts\Activate.ps1`, or use `.\markup.bat` |
 | `Python was not found` | Python is not on PATH | Reinstall from python.org with **Add python.exe to PATH** ticked |
-| `Unknown option: -3` during setup | The `py` launcher on this machine does not forward its arguments | Fixed in the current `setup.ps1`, which resolves the interpreter's real path and calls it directly. Pull the latest and re-run |
+| `Unknown option: -3` during setup | An old bug — setup used the `py` launcher, which does not forward arguments on every machine | Fixed; pull the latest `setup.ps1` and re-run |
+| `Could not locate the Claude CLI on PATH` | VS Code started before Claude Code was installed, or PATH was never updated | Fix PATH (above), then **File > Exit** and reopen VS Code |
 | `Missing required input(s)` | An export is not in `data\input\` | File names must start with `GR2`, `W10`, `markup_list`, `sale_list` |
 | `missing required column(s)` | An ERP header changed | The message lists the headers it found — add the right one to `column_mapping.yaml` |
 | `No run history yet` | `report` before `update` | Run `markup update` first |
 | Debugger does nothing on F5 | No configuration selected | Open Run and Debug (`Ctrl+Shift+D`) and pick one from the dropdown |
-| Editor is sluggish | The 62 MB GR2 file | Already excluded from search and file watching; do not open it in the editor |
+| Editor is sluggish | The 62 MB GR2 file | Already excluded from search and file watching; don't open it in the editor |
 
-If dependency installation fails behind a corporate network, the proxy is the
-usual cause. `pip install --proxy http://your-proxy:port -r requirements-dev.txt`
-works once you have the address from IT.
-
----
-
-## About PowerShell's execution policy
-
-Windows ships with script execution switched off. Both `setup.ps1` and the
-environment's own `Activate.ps1` are scripts, so on a fresh machine you will see:
-
-```
-running scripts is disabled on this system
-```
-
-**The clean fix**, which needs no administrator rights and changes nothing for
-any other user of the machine:
+Dependency installation failing behind a corporate network is usually the proxy:
 
 ```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+pip install --proxy http://your-proxy:port -r requirements-dev.txt
 ```
-
-`RemoteSigned` means scripts written locally may run, while anything downloaded
-from the internet must carry a valid signature. This is the setting Microsoft
-recommends for development machines, and it is what makes both the setup script
-and normal environment activation work.
-
-**If your IT department enforces the policy by Group Policy**, the command above
-fails with *"overridden by a policy defined at a more specific scope"*. In that
-case do not fight it — use the `.bat` wrappers, which never invoke PowerShell
-scripts at all:
-
-```powershell
-.\setup.bat                  # instead of .\setup.ps1
-.\markup.bat check           # instead of activating, then markup check
-```
-
-VS Code tasks and F5 debugging call the environment's Python directly, so they
-work regardless of the policy.
 
 ---
 
@@ -240,5 +308,5 @@ If the environment gets into a confusing state:
 .\setup.ps1 -Recreate
 ```
 
-That deletes `.venv\` and rebuilds it. Nothing in `config\`, `data\` or `src\`
-is touched, so no settings, decisions or exports are lost.
+That deletes `.venv\` and rebuilds it. Nothing in `config\`, `data\` or `src\` is
+touched, so no settings, decisions or exports are lost.
