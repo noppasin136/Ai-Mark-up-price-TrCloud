@@ -1,7 +1,29 @@
-# Running this in VS Code (Windows)
+# Setup
 
-Written against a real setup on a fresh Windows machine, in the order things
-actually happen — including the two places Windows gets in the way.
+The intended way to use this project is to talk to Claude in a terminal and type
+slash commands — `/markup`, `/update`, `/report`. This page covers getting there,
+and the manual route if you prefer to type the commands yourself.
+
+Written against a real install on a fresh Windows machine, in the order things
+actually happen, including the two places Windows gets in the way.
+
+---
+
+## The short version
+
+```powershell
+# 1. Install Claude Code (no admin needed)
+irm https://claude.ai/install.ps1 | iex
+
+# 2. New terminal, then:
+cd "C:\Ai Mark up price"
+claude
+```
+
+Then type `/setup` and let Claude build the environment. Then `/check`.
+
+If that works, you can stop reading. The rest of this page is for when it
+doesn't, and for running things without Claude.
 
 ---
 
@@ -121,7 +143,22 @@ The flow is always the same order:
 check  →  review  →  update  →  report
 ```
 
-### With buttons — Tasks
+### With Claude — the normal way
+
+```
+/markup     the whole sequence, with Claude judging what needs your input
+/check      are the exports readable?
+/review     units needing a decision
+/update     price everything
+/report     summary and comparison
+/audit      full data-quality report
+```
+
+Claude runs the command, reads the output and explains it. You can also just
+describe what you want — "price it on 30 days using FIFO" — and it will pass the
+right flags.
+
+### With buttons — VS Code Tasks
 
 **Terminal > Run Task…** then pick:
 
@@ -192,11 +229,12 @@ If activation is blocked, the wrapper calls the environment's Python directly:
 
 ---
 
-## Optional — Claude in the VS Code terminal
+## Claude Code — the intended interface
 
-Claude Code is a separate tool that lets you work with Claude from a terminal
-inside VS Code. It is **not required** for anything above; the engine is plain
-Python.
+Claude Code lets you drive this project with slash commands from any terminal,
+including the one inside VS Code. The engine is plain Python and runs perfectly
+well without it, but the commands (`/markup`, `/check`, `/review`, `/update`,
+`/report`) live in this repository and only work through Claude Code.
 
 Install from PowerShell (no administrator rights needed):
 
@@ -215,8 +253,13 @@ Then:
    such as `2.1.251 (Claude Code)` means it worked.
 2. **Quit VS Code completely** — File > Exit, not just closing the window — and
    reopen. VS Code reads PATH once at launch.
-3. In the VS Code terminal: `claude`. First run sends you to the browser to log
-   in. It needs a Pro, Max, Team or Enterprise account.
+3. In the terminal: `claude`. First run sends you to the browser to log in. It
+   needs a Pro, Max, Team or Enterprise account.
+
+Once inside, type `/` to see the project's commands. They come from
+`.claude/skills/` in this repository, so anyone who clones it gets the same set.
+`CLAUDE.md` at the root is what Claude reads at the start of every session — the
+domain rules, the input formats, and the mistakes that are easy to make.
 
 [Git for Windows](https://git-scm.com/downloads/win) is optional but recommended
 — it gives Claude Code Git Bash instead of PowerShell for shell commands.

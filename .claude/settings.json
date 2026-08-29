@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./markup.bat *)",
+      "Bash(markup.bat *)",
+      "Bash(./setup.bat)",
+      "Bash(.venv/Scripts/python.exe *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(python -m markup *)",
+      "Bash(python -m pytest *)",
+      "Bash(python scripts/*)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)"
+    ],
+    "deny": [
+      "Edit(./data/input/**)",
+      "Write(./data/input/**)"
+    ]
+  }
+}

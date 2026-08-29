@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0 — Claude Code as the interface
+
+The project is now driven by slash commands in a terminal. The CLI still works
+unchanged underneath; Claude is a front door, not a dependency.
+
+- `.claude/skills/` provides `/markup`, `/check`, `/review`, `/update`,
+  `/report`, `/audit` and `/setup`. They are committed, so anyone who clones the
+  repository gets the same commands.
+- `CLAUDE.md` gives every session the domain context: what GR2 and W10 are, that
+  W10 holds one row per SKU *and unit*, that markup is stored as a fraction,
+  that costs are held per base unit, and the rules that must not be broken.
+- `.claude/settings.json` pre-approves the runner commands so the flow does not
+  prompt at every step, and denies edits to `data/input/` so the user's ERP
+  exports can only be changed through the backed-up repair script.
+- README rewritten around the commands; `docs/VSCODE_SETUP.md` renamed to
+  `docs/SETUP.md` and reordered to lead with Claude Code.
+
 ## 0.3.1
 
 - VS Code workspace: tasks, F5 debug entries, recommended extensions, and
