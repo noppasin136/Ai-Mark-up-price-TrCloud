@@ -129,7 +129,10 @@ def _style(ws, df: pd.DataFrame, cfg: AppConfig, key: str) -> None:
         cell.border = BORDER
 
         letter = get_column_letter(col_idx)
-        width = max(len(str(name)) + 4, min(int(df[name].astype(str).str.len().max() or 10) + 3, 42))
+        longest = df[name].astype(str).str.len().max()
+        if longest is None or pd.isna(longest):
+            longest = 10
+        width = max(len(str(name)) + 4, min(int(longest) + 3, 42))
         ws.column_dimensions[letter].width = width
 
         if name in MONEY_COLS:
