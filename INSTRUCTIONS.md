@@ -243,40 +243,70 @@ Set `enabled: false` to price base units only.
 ```yaml
 guardrails:
   max_increase_pct: 25.0
-  max_decrease_pct: 10.0
+  max_decrease_pct: 25.0
   clamp: false
   flag_price_decrease: true
   min_change_pct: 0.5
 ```
 
-Movement limits are measured against the current W10 price.
+Movement limits are measured against the current W10 price, as a percentage.
+A SKU that moves more than the limit is flagged `OVER_MAX_INCREASE` /
+`OVER_MAX_DECREASE` and listed on Exceptions — but it **still ships** on the
+Price Upload sheet. The flag is a "look at this", not a block; a big move is
+usually a stale current price catching up, not an error. Nothing is required to
+let it through.
 
-- `clamp: false` — a breach **blocks** the row; it appears on Exceptions and is
-  kept off the upload sheet. Safer, and the default.
-- `clamp: true` — the price is **capped** at the limit and shipped, flagged
-  `CLAMPED_UP` / `CLAMPED_DOWN`.
+**To loosen or tighten the limits**, edit these two numbers in
+`config/config.yaml` (they sit under the `>>> GUARDRAIL PARAMETERS <<<` banner,
+in the same file as every other setting), then re-run `markup update`:
+
+- **Raise** them and fewer SKUs get the review flag.
+- **Lower** them and more do.
+- They are independent: allow a large drop while keeping rises tight.
+
+There is no command-line flag for these — they are `config.yaml` only, so a
+change is deliberate and stays the team's baseline until edited back.
+
+- `clamp: false` (default) — the breaching price ships as calculated, with the
+  review flag.
+- `clamp: true` — the price is instead **capped** at the limit and shipped,
+  flagged `CLAMPED_UP` / `CLAMPED_DOWN`.
+
+**To veto a specific soft-flagged row**, open `config/price_review.xlsx` (rebuilt
+by every `markup update`), set its `Decision` to `HOLD`, and re-run — that SKU is
+then kept off the upload (`PRICE_HELD`). Blank or `OK` means it ships.
 
 `min_change_pct` suppresses trivial moves so you are not republishing the whole
 catalogue over a few satang.
 
 ### Flags you will see on the Exceptions sheet
 
-| Code | Meaning | Blocks upload |
+Two tiers. **Hard** flags keep the row off Price Upload — there is nothing safe
+to send. **Soft** flags stay on Price Upload and only ask for a look.
+
+| Code | Meaning | Tier |
 |---|---|---|
-| `NO_COST` | No goods receipt in the period | yes |
-| `NEGATIVE_MARGIN` | Suggested price is below cost | yes |
-| `BELOW_MIN_MARGIN` | Margin under the floor | yes |
-| `OVER_MAX_INCREASE` | Increase past the guardrail | yes |
-| `OVER_MAX_DECREASE` | Decrease past the guardrail | yes |
-| `MISSING_IN_W10` | In the sale list but not in W10 | yes |
-| `NO_MARKUP_RULE` | Default percentage was used | no |
-| `PRICE_DECREASE` | Lower than the current price | no |
-| `NO_CURRENT_PRICE` | New item, nothing to compare | no |
-| `BELOW_MIN_CHANGE` | Move too small to bother with | no |
-| `UNIT_UNVERIFIED` | Unit conflict not yet decided in the review sheet | yes |
-| `UNIT_EXCLUDED` | Excluded by a decision in the review sheet | yes |
-| `UNKNOWN_SALE_UNIT` | Sale unit is not listed for this SKU in W10 | yes |
-| `UNIT_CORRECTED` | Costed under an approved unit correction | no |
+| `NO_COST` | No goods receipt in the period | hard |
+| `NEGATIVE_MARGIN` | Suggested price is below cost | hard |
+| `BELOW_MIN_MARGIN` | Margin under the floor | hard |
+| `MISSING_IN_W10` | In the sale list but not in W10 | hard |
+| `UNIT_UNVERIFIED` | Unit conflict not yet decided in the review sheet | hard |
+| `UNIT_EXCLUDED` | Excluded by a decision in the review sheet | hard |
+| `UNKNOWN_SALE_UNIT` | Sale unit is not listed for this SKU in W10 | hard |
+| `MYCARGO_UNIT_MISMATCH` | My Cargo unit ≠ the SKU's W10 base unit | hard |
+| `PRICE_HELD` | Vetoed by a `HOLD` in `config/price_review.xlsx` | hard |
+| `OVER_MAX_INCREASE` | Increase past the guardrail | soft |
+| `OVER_MAX_DECREASE` | Decrease past the guardrail | soft |
+| `PRICE_DECREASE` | Lower than the current price | soft |
+| `NO_CURRENT_PRICE` | New item, nothing to compare | soft |
+| `NO_MARKUP_RULE` | Default percentage was used | soft |
+| `BELOW_MIN_CHANGE` | Move too small to bother with | soft |
+| `UNIT_CORRECTED` | Costed under an approved unit correction | soft |
+| `COST_FROM_MYCARGO` | Costed from the My Cargo import file | soft |
+| `COST_FROM_OTHER_WH` | Costed from the other head-office warehouse | soft |
+| `COST_FROM_W10` | Costed from the W10 standard cost (no receipt) | soft |
+| `MANUAL_PRICE` | Held at its current price (My Cargo gives a price, not a cost) | soft |
+| `MARKUP_RATE_MISMATCH` | `markup_list` rate ≠ the routing rule's expected rate | soft |
 
 ---
 
@@ -430,7 +460,44 @@ markup run --method weighted_average --out data/output/scenario_wavg.xlsx
 `run` takes explicit paths and does **not** record history, so scenario testing
 never pollutes the month-to-month comparison. Use `update` for real runs.
 
-## 11. Extending the engine
+---
+
+## 11. Warehouse routing
+
+```yaml
+warehouse_routing:
+  enabled: true
+  main_warehouse: ST0001
+  central_kitchen_warehouse: ST0002
+  central_kitchen_categories: [CK, "Central Kitchen"]
+  z_smart_supplier_match: "แซด สมาร์ท"
+  z_smart_needs_majority: true
+  category_rate_pct: {WH: 12.0, Chilled: 15.0, Freeze: 20.0, CK: 25.0, "Central Kitchen": 25.0}
+  import_rate_pct: 25.0
+  rate_mismatch_tolerance_pct: 0.5
+```
+
+Full rationale: **`docs/COSTING_MODEL.md`**. In short, with `enabled: true` each
+in-scope SKU is:
+
+1. **Routed** — `import` (in the My Cargo file), `central_kitchen` (Category
+   `CK`/`Central Kitchen`, or bought mostly from Z Smart), or `warehouse`.
+2. **Costed**, first match: the My Cargo landed cost → the route's home warehouse
+   (`ST0001` / `ST0002`) receipts → the other head-office warehouse
+   (`COST_FROM_OTHER_WH`) → the W10 standard `buy_price` (`COST_FROM_W10`) →
+   `NO_COST`. **Storefront receipts are never used.**
+3. **Priced** at the `markup_list` Markup rate. `category_rate_pct` /
+   `import_rate_pct` are only the *expected* rate — a disagreement raises the
+   soft `MARKUP_RATE_MISMATCH` flag.
+
+The My Cargo file (`data/input/My Cargo.xlsx`) is optional and matched by prefix;
+its tab is read as the first sheet regardless of name. A row quoted in a unit
+that is not the SKU's W10 base unit is held back with `MYCARGO_UNIT_MISMATCH`.
+
+Set `enabled: false` for the old behaviour — every receipt line costed together,
+no My Cargo file, no W10 fallback.
+
+## 12. Extending the engine
 
 **A new costing method** — add to `src/markup/costing/methods.py`:
 
@@ -454,7 +521,8 @@ def _ten_or_five(price, rule):
 ```
 
 **A new guardrail** — add a code to `FLAG_CATALOG` in `src/markup/validation.py`
-(with `True` if it should block upload) and one `flag(...)` call in
-`apply_guardrails`. It flows through to the Exceptions sheet automatically.
+with its tier (`HARD` keeps the row off Price Upload, `SOFT` ships it and lists
+it for review) and one `flag(...)` call in `apply_guardrails`. It flows through
+to the Exceptions sheet automatically.
 
 Run `pytest -q` after any change.

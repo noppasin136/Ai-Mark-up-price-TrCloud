@@ -102,6 +102,10 @@ class AppConfig:
     flag_price_decrease: bool = True
     min_change_pct: float = 0.5
 
+    # warehouse routing (see docs/COSTING_MODEL.md); empty dict / enabled:false
+    # -> the old behaviour: cost from every receipt line, no My Cargo file.
+    warehouse_routing: dict = field(default_factory=dict)
+
     # output
     out_dir: Path = Path("data/output")
     out_filename: str = "markup_{method}_{period}d_{timestamp}.xlsx"
@@ -189,6 +193,7 @@ class AppConfig:
             clamp=bool(_get(raw, "guardrails.clamp", False)),
             flag_price_decrease=bool(_get(raw, "guardrails.flag_price_decrease", True)),
             min_change_pct=float(_get(raw, "guardrails.min_change_pct", 0.5)),
+            warehouse_routing=_get(raw, "warehouse_routing", {}) or {},
             out_dir=Path(_get(raw, "output.directory", "data/output")),
             out_filename=_get(
                 raw, "output.filename", "markup_{method}_{period}d_{timestamp}.xlsx"
@@ -244,6 +249,14 @@ class AppConfig:
     def resolve(self, path: str | Path) -> Path:
         p = Path(path)
         return p if p.is_absolute() else self.root / p
+
+    @property
+    def wh_routing_enabled(self) -> bool:
+        return bool(self.warehouse_routing.get("enabled", False))
+
+    def wh(self, key: str, default: Any = None) -> Any:
+        """Read a warehouse_routing setting."""
+        return self.warehouse_routing.get(key, default)
 
 
 def _assign(d: dict, dotted: str, value: Any) -> None:

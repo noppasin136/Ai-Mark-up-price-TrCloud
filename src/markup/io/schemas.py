@@ -18,6 +18,7 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "w10": ("sku", "uom"),
     "markup_list": ("key", "markup_pct"),
     "sale_list": ("sku",),
+    "my_cargo": ("sku", "product_cost"),
 }
 
 # Columns coerced to numeric / datetime on load.
@@ -26,6 +27,7 @@ NUMERIC: dict[str, tuple[str, ...]] = {
     "w10": ("current_price", "buy_price", "conversion_factor", "is_base_unit"),
     "markup_list": ("markup_pct", "min_margin_pct", "current_price"),
     "sale_list": ("current_price",),
+    "my_cargo": ("product_cost", "oversea_transport", "vat", "inland_transport", "manual_price"),
 }
 DATES: dict[str, tuple[str, ...]] = {"gr2": ("receipt_date",)}
 

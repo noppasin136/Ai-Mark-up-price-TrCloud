@@ -40,16 +40,31 @@ All in `data/input/`, matched by **prefix**, so the ERP's long Thai filenames
 work unrenamed.
 
 - **GR2** — goods receipts. The cost source. One row per receipt line. Inbound
-  only: there is no issues/consumption ledger.
+  only: there is no issues/consumption ledger. Column Q is the receiving
+  warehouse, which drives routing (see below).
 - **W10** — the unit master. **One row per SKU *and unit***, not one per SKU,
   with `Ccoefficient` = base units per that unit and `เป็นหน่วยหลัก` = 1 for the
   base unit. W10 is the authority on which units a SKU may be sold in. Its
-  prices are per base unit and often zero — do **not** treat W10 as the current
-  price source.
+  *selling* prices are per base unit and often zero — do **not** treat W10 as the
+  current selling price source. Its `ราคาซื้อ` (`buy_price`) *is* used as a
+  fallback **cost** when a SKU has no usable receipt.
 - **markup_list** — one row per SKU: Code, Sale Unit, Selling Price, Category,
-  Markup. This is the current-price source.
+  Markup. The current-price source, and the routing key (`Category`).
 - **sale_list** — same shape without Category/Markup. Defines scope and selling
   unit. Sale Unit and Selling Price must stay identical between the two files.
+- **My Cargo** — optional. Landed import cost (goods + freight) per base unit,
+  one row per imported SKU. First sheet, matched by the `My Cargo` prefix.
+
+## Warehouse routing (`config/config.yaml → warehouse_routing`, `docs/COSTING_MODEL.md`)
+
+When `enabled`, each SKU is routed by `markup_list.Category` + Z Smart supplier +
+My Cargo membership, then costed first-match: My Cargo landed cost → its home
+warehouse (`ST0001` WH/Chilled/Freeze, `ST0002` CK) receipts → the other
+head-office warehouse (`COST_FROM_OTHER_WH`) → W10 `buy_price` (`COST_FROM_W10`)
+→ `NO_COST`. **Storefront receipts (`ST0003`+) never count.** The rate still
+comes from `markup_list`; `MARKUP_RATE_MISMATCH` (soft) flags where it disagrees
+with the expected rate. `MYCARGO_UNIT_MISMATCH` (hard) holds a SKU whose My Cargo
+unit ≠ its W10 base unit.
 
 ## Things that are easy to get wrong
 
@@ -71,7 +86,9 @@ work unrenamed.
   upload until decided. Never invent a decision — a wrong unit multiplies or
   divides a real cost.
 - **Only ~70% of in-scope SKUs have a receipt in any 90-day window.** Partial
-  coverage is normal, not a bug.
+  coverage is normal, not a bug. With warehouse routing on, the rest fall back
+  to the W10 standard cost, so ~98% end up priced — the `COST_FROM_W10` count
+  is the tell.
 
 ## Rules
 
@@ -85,8 +102,15 @@ work unrenamed.
   changes what is being compared.
 - **Never widen the Price Upload sheet.** It is exactly `SKU · Unit · Sale Price`
   so it can be pasted into the ERP. Extra columns belong on Detail.
-- Blocked rows never reach Price Upload, so an upload is always safe to hand
-  over — but say plainly what was held back and why.
+- Exceptions come in two tiers. **Hard** flags (`NO_COST`, `UNIT_UNVERIFIED`,
+  `NEGATIVE_MARGIN`, `BELOW_MIN_MARGIN`, `UNKNOWN_SALE_UNIT`, `MISSING_IN_W10`,
+  `UNIT_EXCLUDED`, `MYCARGO_UNIT_MISMATCH`, `PRICE_HELD`) keep the row **off**
+  Price Upload — there is nothing safe to send, or a human vetoed it. **Soft**
+  flags (a guardrail breach, a new item, a price decrease, a routing cost
+  source) stay **on** Price Upload and are only listed for a look; silence ships
+  them. A person can veto one soft row by setting `HOLD` in
+  `config/price_review.xlsx`. So an upload is safe to hand over, but always say
+  what was held back *and* what shipped with a review flag.
 - Parameters live in `config/config.yaml`; `INSTRUCTIONS.md` documents every one.
   Flags like `--period` and `--method` override for a single run.
 

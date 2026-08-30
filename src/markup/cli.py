@@ -28,7 +28,9 @@ DEFAULT_INPUTS = {
     "w10": "data/input/W10.xlsx",
     "markup_list": "data/input/markup_list.xlsx",
     "sale_list": "data/input/sale_list.xlsx",
+    "my_cargo": "data/input/My Cargo.xlsx",
 }
+OPTIONAL_INPUTS = ("sale_list", "my_cargo")
 INPUT_EXTS = (".xlsx", ".xls", ".xlsm", ".csv")
 
 
@@ -100,6 +102,7 @@ def cli() -> None:
 @click.option("--w10", default="data/input/W10.xlsx", show_default=True, help="Current price report")
 @click.option("--markup", "markup_path", default="data/input/markup_list.xlsx", show_default=True)
 @click.option("--sale-list", default=None, help="Optional SKU scope list")
+@click.option("--my-cargo", "my_cargo", default=None, help="Optional My Cargo import-cost file")
 @click.option("--period", type=int, default=None, help="Override run.period_days (30/60/90/...)")
 @click.option("--method", type=click.Choice(sorted(costing_methods())), default=None,
               help="Override costing.method")
@@ -110,7 +113,7 @@ def cli() -> None:
 @click.option("--default-markup", type=float, default=None, help="Override markup.default_pct")
 @click.option("--out", default=None, help="Explicit output .xlsx path")
 @click.option("--dry-run", is_flag=True, help="Compute and summarise without writing the workbook")
-def run_cmd(config_path, mapping_path, gr2, w10, markup_path, sale_list, period, method,
+def run_cmd(config_path, mapping_path, gr2, w10, markup_path, sale_list, my_cargo, period, method,
             as_of, rounding, step, default_markup, out, dry_run):
     """Cost the GR2 receipts, apply markup, and write the Excel workbook."""
     overrides = {
@@ -133,7 +136,7 @@ def run_cmd(config_path, mapping_path, gr2, w10, markup_path, sale_list, period,
     _setup_logging(cfg.log_level, cfg.log_file, cfg.root)
 
     try:
-        result = run_pipeline(cfg, gr2, w10, markup_path, sale_list)
+        result = run_pipeline(cfg, gr2, w10, markup_path, sale_list, my_cargo)
     except (FileNotFoundError, ValueError) as exc:
         raise click.ClickException(str(exc)) from None
 
@@ -152,6 +155,12 @@ def run_cmd(config_path, mapping_path, gr2, w10, markup_path, sale_list, period,
         click.secho(
             f"  {result.stats['SKUs blocked from upload']} SKU(s) held back — see the "
             "Exceptions sheet before uploading.",
+            fg="yellow",
+        )
+    if result.stats.get("SKUs on upload flagged for review"):
+        click.secho(
+            f"  {result.stats['SKUs on upload flagged for review']} SKU(s) shipped on the "
+            "upload but are listed on Exceptions for review.",
             fg="yellow",
         )
 
@@ -194,13 +203,15 @@ def check_cmd(config_path, mapping_path):
     click.echo(f"\nInput folder: {cfg.resolve('data/input')}\n")
     problems = 0
 
-    for dataset in ("gr2", "w10", "markup_list", "sale_list"):
-        optional = dataset == "sale_list"
+    for dataset in ("gr2", "w10", "markup_list", "sale_list", "my_cargo"):
+        optional = dataset in OPTIONAL_INPUTS
         path = _find_input(cfg, dataset)
         label = f"{dataset:<12}"
 
         if path is None:
-            if optional:
+            if dataset == "my_cargo":
+                click.echo(f"  {label} - not present (optional; imports priced from GR2 instead)")
+            elif optional:
                 click.echo(f"  {label} - not present (optional; all W10 SKUs will be priced)")
             else:
                 click.secho(f"  {label} MISSING  expected {DEFAULT_INPUTS[dataset]}", fg="red")
@@ -233,6 +244,8 @@ def check_cmd(config_path, mapping_path):
             click.secho(f"  {label} UNREADABLE  {exc}", fg="red")
             problems += 1
 
+    _check_my_cargo_units(cfg)
+
     click.echo("")
     if problems:
         click.secho(
@@ -242,6 +255,34 @@ def check_cmd(config_path, mapping_path):
         )
         raise SystemExit(1)
     click.secho("All inputs look good. Run 'markup update' to price them.", fg="green")
+
+
+def _check_my_cargo_units(cfg: AppConfig) -> None:
+    """Warn about My Cargo rows whose unit is not the SKU's base unit in W10.
+
+    Only a heads-up here — pricing (``markup update``) holds those SKUs back
+    with `MYCARGO_UNIT_MISMATCH` until the file is fixed at source.
+    """
+    mc_path, w10_path = _find_input(cfg, "my_cargo"), _find_input(cfg, "w10")
+    if mc_path is None or w10_path is None:
+        return
+    try:
+        from .io import load_my_cargo, load_w10, mycargo_unit_issues
+
+        issues = mycargo_unit_issues(
+            load_my_cargo(mc_path, cfg.mapping), load_w10(w10_path, cfg.mapping)
+        )
+    except Exception:  # noqa: BLE001 — never let this stop a check
+        return
+    if issues.empty:
+        return
+    click.secho(
+        f"\n  my_cargo     {len(issues)} SKU(s) quoted in a unit W10 does not call the "
+        "base unit — fix the 'unit' column in the file:",
+        fg="yellow",
+    )
+    for r in issues.itertuples():
+        click.echo(f"               {r.sku}: file says '{r.my_cargo_unit}', base unit is '{r.w10_base_unit}'")
 
 
 @cli.command("update")
@@ -284,7 +325,8 @@ def update_cmd(config_path, mapping_path, period, method, as_of, keep_history):
 
     try:
         result = run_pipeline(
-            cfg, paths["gr2"], paths["w10"], paths["markup_list"], paths["sale_list"]
+            cfg, paths["gr2"], paths["w10"], paths["markup_list"],
+            paths["sale_list"], paths["my_cargo"],
         )
     except (FileNotFoundError, ValueError) as exc:
         raise click.ClickException(str(exc)) from None
@@ -292,6 +334,9 @@ def update_cmd(config_path, mapping_path, period, method, as_of, keep_history):
     workbook = write_workbook(result, cfg)
     record = history.save_run(cfg, result, workbook)
     pruned = history.prune(cfg, keep=keep_history)
+
+    from . import price_review
+    pr_path, pr_added, pr_held = price_review.sync(cfg, result.price_review_rows)
 
     click.echo("")
     for k, v in result.stats.items():
@@ -307,6 +352,17 @@ def update_cmd(config_path, mapping_path, period, method, as_of, keep_history):
             f"{blocked} SKU(s) held back — check the Exceptions sheet before uploading.",
             fg="yellow",
         )
+    review = result.stats.get("SKUs on upload flagged for review", 0)
+    if review:
+        click.secho(
+            f"{review} SKU(s) are on the upload but flagged for review — a big price move "
+            "or a new item. They ship unless you object:\n  open "
+            f"{pr_path.name}, set Decision to HOLD on any you want kept back, then re-run "
+            "'markup update'.",
+            fg="yellow",
+        )
+    if pr_held:
+        click.secho(f"{pr_held} SKU(s) held back by a HOLD in {pr_path.name}.", fg="yellow")
     outstanding = result.stats.get("Unit reviews outstanding", 0)
     if outstanding:
         click.secho(

@@ -15,7 +15,8 @@ FIFO/LIFO/weighted-average meaningful.
 | `qty` | yes | Received quantity in the base UOM |
 | `unit_cost` | yes | Cost per base unit |
 | `freight`, `duty`, `other_landed` | no | Line totals, spread per unit when `cost_basis: landed_cost`. Missing = 0 |
-| `receipt_no`, `supplier` | no | Carried to the Cost Audit sheet |
+| `warehouse` | for routing | Receiving warehouse (column Q). Needed when `warehouse_routing.enabled` — see `docs/COSTING_MODEL.md` |
+| `receipt_no`, `supplier` | no | Carried to the Cost Audit sheet; `supplier` also drives the Z Smart route |
 | `product_name`, `uom`, `currency`, `total_cost` | no | Reference only |
 
 Export at least one full period's worth — a 90-day run needs 90 days of receipts.
@@ -60,6 +61,24 @@ it, every SKU in W10 is priced.
 | `sku` | yes | |
 | `sale_uom` | no | The selling unit shown on the Price Upload sheet |
 | `include` | no | `N` / `No` / `False` / `0` excludes the row |
+
+## My Cargo (optional — imports)
+
+Landed cost for imported SKUs, used only when `warehouse_routing.enabled`.
+Matched by the `My Cargo` filename prefix; the **first sheet** is read whatever
+its name. One row per SKU.
+
+| Canonical | Required | Notes |
+|---|---|---|
+| `sku` | yes | Matches `markup_list` after trimming |
+| `product_cost` | yes | Goods cost **per base unit**, ex-freight. Blank only on manual-price rows |
+| `oversea_transport` | for a cost | Overseas freight + import duty per base unit |
+| `vat`, `inland_transport` | no | Summed into the cost if ever populated (empty today) |
+| `unit` | recommended | Must equal the SKU's W10 base unit, or the SKU is held back |
+| `manual_price` | no | A price to hold the SKU at when it carries no cost |
+| `product_name` | no | Reference only |
+
+Landed cost = `product_cost + oversea_transport (+ vat + inland_transport)`.
 
 ## Common problems
 
