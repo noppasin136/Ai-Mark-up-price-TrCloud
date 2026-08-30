@@ -1,8 +1,8 @@
 # Costing model — warehouse routing, Central Kitchen, and imports
 
 **Status: built 2026-08-30 on branch `costing-model-pr1-soft-guardrails`
-(PRs 1–5, §9). Not yet merged to `master`.** `warehouse_routing.enabled: true`
-is the default. PR 1b (per-row objection) is still optional / deferred.
+(PRs 1–5 + 1b, §9). Not yet merged to `master`.** `warehouse_routing.enabled:
+true` is the default.
 
 Read alongside `INSTRUCTIONS.md` (parameters) and `docs/DATA_CONTRACT.md`
 (input columns).
@@ -474,7 +474,7 @@ own cases. Do **not** bundle — incremental commits are the handoff.
 | PR | Scope | Depends on | Doc |
 |---|---|---|---|
 | **1** ✅ | **Flag tiering + soft guardrail.** `FLAG_CATALOG` now records a `hard` / `soft` tier. Hard flags (`NO_COST`, `UNIT_UNVERIFIED`, `NEGATIVE_MARGIN`, `BELOW_MIN_MARGIN`, `MISSING_IN_W10`, `UNIT_EXCLUDED`, `UNKNOWN_SALE_UNIT`) keep the row off Price Upload as before; soft flags (`OVER_MAX_INCREASE` / `OVER_MAX_DECREASE`, `PRICE_DECREASE`, `NO_CURRENT_PRICE`, …) ship on the upload and are listed on Exceptions. New stat `SKUs on upload flagged for review`; Exceptions sheet carries `blocked`. `CLAUDE.md` / `INSTRUCTIONS.md §6` updated. | — | §8.C |
-| **1b** | **Per-row objection** (optional, later). A `config/price_review.xlsx` round-trip like `unit_review.xlsx`: a soft-flagged row gets held back only if a human writes an objection against it; silence ships. Skip unless finance wants the override. | 1 | §8.C |
+| **1b** ✅ | **Per-row objection.** `src/markup/price_review.py` + `config/price_review.xlsx`, a round-trip like `unit_review.xlsx`. `markup update` refreshes the sheet with every soft-flagged row and keeps existing decisions; a row set to `HOLD` is blocked next run (`PRICE_HELD`, hard). Blank / `OK` ships. | 1 | §8.C |
 | **2** ✅ | **`markup_list` corrections** via `scripts/fix_markup_list.py` (backs up to `data/input/archive/`, logs to `data/output/`, idempotent). `702-0026` / `602-0010` / `704-0014` Category → `Freeze` (latent until PR 4 — the engine ignores `markup_list.Category` today); `502-0007` Markup `0.12` → `0.25` (took effect: was about to mis-price at −10%). | — | §4.3 |
 | **3** ✅ | **My Cargo loader.** `my_cargo` block in `column_mapping.yaml`; `load_my_cargo()` reads the first sheet, matched by the `My Cargo` prefix, one row per SKU (dupes/unusable rows dropped with a warning); `landed_cost` = product + oversea (+ vat/inland if ever filled); `has_landed_cost` / `has_manual_price` flags. `mycargo_unit_issues()` compares `unit` to the W10 base unit. `MYCARGO_UNIT_MISMATCH` (hard) added to the flag catalog. `/check` reports the file and any unit mismatch. No pricing change — `run()` does not read it yet. Sample: `make_sample_data.py` now emits `My_Cargo_sample.xlsx`. | — | §5, §8.F/G |
 | **4** ✅ | **Warehouse-aware costing.** `config/config.yaml → warehouse_routing` (default **on**). `src/markup/routing.py` `build_routes()`; `cost_skus()` gains a `routes` arg and filters each SKU's layers to its home warehouse (else the other head-office warehouse), storefront lines dropped; `pipeline._apply_routing()` fills in My Cargo / manual / W10 cost sources. New soft flags `COST_FROM_MYCARGO` / `COST_FROM_OTHER_WH` / `COST_FROM_W10` / `MANUAL_PRICE` / `MARKUP_RATE_MISMATCH`. Run-summary gains the cost-source breakdown. `make_sample_data.py` restructured (warehouse column, per-SKU Category, buy price, Z Smart vendor). `tests/test_routing.py`. On the real data: priced 210 → **299**, held back 92 → **7**. | 1, 3 | §6 |

@@ -10,11 +10,13 @@ data/output/*
 *.tgz
 _verify*
 
-# config/unit_review.xlsx holds your unit decisions — the record of WHY a price
-# is what it is. It is excluded above because it also carries costs and selling
-# prices, which do not belong in a public repository. If this repo is private,
-# uncomment the next line to version the decisions with the code:
+# config/unit_review.xlsx and config/price_review.xlsx hold your review
+# decisions — the record of WHY a price is what it is. They are excluded above
+# because they also carry costs and selling prices, which do not belong in a
+# public repository. If this repo is private, keep the next lines to version the
+# decisions with the code:
 !config/unit_review.xlsx
+!config/price_review.xlsx
 *.csv
 !tests/fixtures/*.csv
 

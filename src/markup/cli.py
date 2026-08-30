@@ -335,6 +335,9 @@ def update_cmd(config_path, mapping_path, period, method, as_of, keep_history):
     record = history.save_run(cfg, result, workbook)
     pruned = history.prune(cfg, keep=keep_history)
 
+    from . import price_review
+    pr_path, pr_added, pr_held = price_review.sync(cfg, result.price_review_rows)
+
     click.echo("")
     for k, v in result.stats.items():
         click.echo(f"  {k:<28} {v}")
@@ -353,9 +356,13 @@ def update_cmd(config_path, mapping_path, period, method, as_of, keep_history):
     if review:
         click.secho(
             f"{review} SKU(s) are on the upload but flagged for review — a big price move "
-            "or a new item. Look at the Exceptions sheet; no action needed to ship them.",
+            "or a new item. They ship unless you object:\n  open "
+            f"{pr_path.name}, set Decision to HOLD on any you want kept back, then re-run "
+            "'markup update'.",
             fg="yellow",
         )
+    if pr_held:
+        click.secho(f"{pr_held} SKU(s) held back by a HOLD in {pr_path.name}.", fg="yellow")
     outstanding = result.stats.get("Unit reviews outstanding", 0)
     if outstanding:
         click.secho(

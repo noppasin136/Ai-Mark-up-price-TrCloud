@@ -104,11 +104,13 @@ unit ≠ its W10 base unit.
   so it can be pasted into the ERP. Extra columns belong on Detail.
 - Exceptions come in two tiers. **Hard** flags (`NO_COST`, `UNIT_UNVERIFIED`,
   `NEGATIVE_MARGIN`, `BELOW_MIN_MARGIN`, `UNKNOWN_SALE_UNIT`, `MISSING_IN_W10`,
-  `UNIT_EXCLUDED`) keep the row **off** Price Upload — there is nothing safe to
-  send. **Soft** flags (a guardrail breach, a new item, a price decrease) stay
-  **on** Price Upload and are only listed for a look; silence ships them. So an
-  upload is safe to hand over, but always say what was held back *and* what
-  shipped with a review flag.
+  `UNIT_EXCLUDED`, `MYCARGO_UNIT_MISMATCH`, `PRICE_HELD`) keep the row **off**
+  Price Upload — there is nothing safe to send, or a human vetoed it. **Soft**
+  flags (a guardrail breach, a new item, a price decrease, a routing cost
+  source) stay **on** Price Upload and are only listed for a look; silence ships
+  them. A person can veto one soft row by setting `HOLD` in
+  `config/price_review.xlsx`. So an upload is safe to hand over, but always say
+  what was held back *and* what shipped with a review flag.
 - Parameters live in `config/config.yaml`; `INSTRUCTIONS.md` documents every one.
   Flags like `--period` and `--method` override for a single run.
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import unit_review
+from . import price_review, unit_review
 from .config import AppConfig
 from .costing import cost_skus
 from .io import (
@@ -26,7 +26,7 @@ from .routing import build_routes
 from .rules.markup import MarkupResolver, apply_markup, gross_margin_pct
 from .rules.rounding import apply_rounding, pick_rule
 from .uom import build_unit_rows, normalise_factor
-from .validation import apply_guardrails, exceptions_view
+from .validation import FLAG_CATALOG, apply_guardrails, exceptions_view
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ class RunResult:
     cost_audit: pd.DataFrame
     summary: pd.DataFrame
     stats: dict = field(default_factory=dict)
+    price_review_rows: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def run(
@@ -75,9 +76,12 @@ def run(
     detail = _resolve_sale_units(detail, coefficients, decisions, gr2)
     detail = _price(detail, MarkupResolver(markups, cfg), cfg)
     detail = apply_guardrails(detail, cfg)
+    holds = price_review.load_holds(cfg)
+    detail = _apply_price_holds(detail, holds)
 
     upload = _build_upload(detail, units, cfg)
     stats = _stats(detail, upload, gr2, cfg, started, decisions)
+    stats["Price review holds"] = len(holds)
 
     return RunResult(
         detail=_order_detail(detail),
@@ -86,10 +90,42 @@ def run(
         cost_audit=audit,
         summary=pd.DataFrame(list(stats.items()), columns=["Parameter", "Value"]),
         stats=stats,
+        price_review_rows=_price_review_rows(detail),
     )
 
 
 # ------------------------------------------------------------------ internals
+def _apply_price_holds(detail: pd.DataFrame, holds: set[str]) -> pd.DataFrame:
+    """Honour HOLD decisions from config/price_review.xlsx — block those rows."""
+    if not holds:
+        return detail
+    mask = detail["sku"].isin(holds)
+    for idx in detail.index[mask]:
+        codes = [c for c in str(detail.at[idx, "flag_codes"]).split(", ") if c]
+        if "PRICE_HELD" not in codes:
+            codes.append("PRICE_HELD")
+        detail.at[idx, "flag_codes"] = ", ".join(codes)
+        detail.at[idx, "flag_reasons"] = "; ".join(
+            filter(None, [
+                str(detail.at[idx, "flag_reasons"] or ""),
+                FLAG_CATALOG["PRICE_HELD"][0],
+            ])
+        )
+    detail.loc[mask, "blocked"] = True
+    return detail
+
+
+def _price_review_rows(detail: pd.DataFrame) -> pd.DataFrame:
+    """The soft-flagged rows a person may want to hold — the review sheet's body."""
+    soft = detail["flag_codes"].astype(bool) & ~detail["blocked"]
+    keep = detail[soft & detail["suggested_price"].notna()]
+    cols = [
+        "sku", "product_name", "category", "cost_source", "current_price",
+        "suggested_price", "change_pct", "flag_codes",
+    ]
+    return keep[[c for c in cols if c in keep.columns]].reset_index(drop=True)
+
+
 def _apply_routing(
     costs: pd.DataFrame,
     routes: pd.DataFrame,

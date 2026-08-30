@@ -272,6 +272,10 @@ change is deliberate and stays the team's baseline until edited back.
 - `clamp: true` — the price is instead **capped** at the limit and shipped,
   flagged `CLAMPED_UP` / `CLAMPED_DOWN`.
 
+**To veto a specific soft-flagged row**, open `config/price_review.xlsx` (rebuilt
+by every `markup update`), set its `Decision` to `HOLD`, and re-run — that SKU is
+then kept off the upload (`PRICE_HELD`). Blank or `OK` means it ships.
+
 `min_change_pct` suppresses trivial moves so you are not republishing the whole
 catalogue over a few satang.
 
@@ -290,6 +294,7 @@ to send. **Soft** flags stay on Price Upload and only ask for a look.
 | `UNIT_EXCLUDED` | Excluded by a decision in the review sheet | hard |
 | `UNKNOWN_SALE_UNIT` | Sale unit is not listed for this SKU in W10 | hard |
 | `MYCARGO_UNIT_MISMATCH` | My Cargo unit ≠ the SKU's W10 base unit | hard |
+| `PRICE_HELD` | Vetoed by a `HOLD` in `config/price_review.xlsx` | hard |
 | `OVER_MAX_INCREASE` | Increase past the guardrail | soft |
 | `OVER_MAX_DECREASE` | Decrease past the guardrail | soft |
 | `PRICE_DECREASE` | Lower than the current price | soft |

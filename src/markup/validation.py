@@ -57,6 +57,7 @@ FLAG_CATALOG: dict[str, tuple[str, str]] = {
     "MARKUP_RATE_MISMATCH": (
         "markup_list Markup differs from the rate the routing rules expect", SOFT,
     ),
+    "PRICE_HELD": ("Held off the upload by a HOLD decision in config/price_review.xlsx", HARD),
 }
 
 BLOCKING = {code for code, (_, tier) in FLAG_CATALOG.items() if tier == HARD}
