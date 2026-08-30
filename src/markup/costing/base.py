@@ -53,6 +53,7 @@ class CostResult:
     max_cost: float | None = None
     outliers_dropped: int = 0
     note: str = ""
+    cost_source: str = "receipt"   # receipt | other_wh | none (My Cargo / W10 set by the pipeline)
     detail: list[dict] = field(default_factory=list)
 
     def as_row(self) -> dict:
@@ -60,6 +61,7 @@ class CostResult:
             "sku": self.sku,
             "unit_cost": self.unit_cost,
             "costing_method": self.method,
+            "cost_source": self.cost_source,
             "gr_lines_used": self.lines_used,
             "gr_qty_used": self.qty_used,
             "first_receipt": self.first_receipt,

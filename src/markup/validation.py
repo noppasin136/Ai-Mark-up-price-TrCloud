@@ -47,6 +47,16 @@ FLAG_CATALOG: dict[str, tuple[str, str]] = {
         "My Cargo quotes this SKU in a unit that is not its W10 base unit "
         "— fix the file's 'unit' column", HARD,
     ),
+    "COST_FROM_MYCARGO": ("Costed from the My Cargo import file (goods + freight)", SOFT),
+    "COST_FROM_OTHER_WH": (
+        "No receipt in this SKU's home warehouse — costed from its other "
+        "head-office warehouse", SOFT,
+    ),
+    "COST_FROM_W10": ("No usable receipt — costed from the W10 standard cost", SOFT),
+    "MANUAL_PRICE": ("Held at its current price — My Cargo gives a price, not a cost", SOFT),
+    "MARKUP_RATE_MISMATCH": (
+        "markup_list Markup differs from the rate the routing rules expect", SOFT,
+    ),
 }
 
 BLOCKING = {code for code, (_, tier) in FLAG_CATALOG.items() if tier == HARD}
@@ -61,7 +71,9 @@ def apply_guardrails(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
         for idx in df.index[mask.fillna(False)]:
             df.at[idx, "flags"].append(code)
 
-    flag(df["unit_cost"].isna(), "NO_COST")
+    # No cost AND no price — nothing to send. A My Cargo manual-price row has no
+    # cost but does have a price, so it is not NO_COST.
+    flag(df["unit_cost"].isna() & df["suggested_price"].isna(), "NO_COST")
     if "unit_status" in df.columns:
         flag(df["unit_status"] == "unverified", "UNIT_UNVERIFIED")
         flag(df["unit_status"] == "excluded", "UNIT_EXCLUDED")
@@ -82,6 +94,8 @@ def apply_guardrails(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
         flag(movable & (df["change_pct"] < 0), "PRICE_DECREASE")
     flag(movable & (df["change_pct"].abs() < cfg.min_change_pct), "BELOW_MIN_CHANGE")
 
+    _flag_routing(df, cfg, flag)
+
 
     if cfg.clamp:
         _clamp(df, cfg)
@@ -92,6 +106,26 @@ def apply_guardrails(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
         lambda fl: "; ".join(FLAG_CATALOG[c][0] for c in fl if c in FLAG_CATALOG)
     )
     return df
+
+
+def _flag_routing(df: pd.DataFrame, cfg: AppConfig, flag) -> None:
+    """Flags from the warehouse-routing columns (present only when routing ran)."""
+    src = df.get("cost_source")
+    if src is not None:
+        flag(src == "mycargo", "COST_FROM_MYCARGO")
+        flag(src == "other_wh", "COST_FROM_OTHER_WH")
+        flag(src == "w10", "COST_FROM_W10")
+        flag(src == "manual", "MANUAL_PRICE")
+
+    if "mc_unit_mismatch" in df.columns:
+        flag(df["mc_unit_mismatch"].fillna(False).astype(bool), "MYCARGO_UNIT_MISMATCH")
+
+    if "expected_rate_pct" in df.columns and "markup_pct" in df.columns:
+        tol = float(cfg.wh("rate_mismatch_tolerance_pct", 0.5))
+        expected = pd.to_numeric(df["expected_rate_pct"], errors="coerce")
+        actual = pd.to_numeric(df["markup_pct"], errors="coerce")
+        flag(expected.notna() & actual.notna() & ((actual - expected).abs() > tol),
+             "MARKUP_RATE_MISMATCH")
 
 
 def _clamp(df: pd.DataFrame, cfg: AppConfig) -> None:

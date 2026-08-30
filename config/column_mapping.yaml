@@ -16,6 +16,9 @@ gr2:                          # Goods receipt report — the cost source
     receipt_date:   [วันที่, GR Date, Receipt Date, Posting Date, Doc Date]
     receipt_no:     [เลขที่เอกสาร, GR No, Doc No, Document No]
     doc_type:       [ประเภทเอกสาร, Doc Type, Document Type]
+    # Receiving warehouse (column Q). Drives warehouse-aware costing — see
+    # docs/COSTING_MODEL.md. The "per document" column, not "per line".
+    warehouse:      ["คลังสินค้า (ตามเอกสาร)", Warehouse, "Warehouse (Doc)", คลัง]
     qty:            [จำนวน, Qty, Quantity, Received Qty]
     uom:            [หน่วย, UOM, Unit, Unit of Measure]
     unit_cost:      [ต้นทุนต่อหน่วย, Unit Cost, Unit Price, Purchase Price]

@@ -102,6 +102,7 @@ def cli() -> None:
 @click.option("--w10", default="data/input/W10.xlsx", show_default=True, help="Current price report")
 @click.option("--markup", "markup_path", default="data/input/markup_list.xlsx", show_default=True)
 @click.option("--sale-list", default=None, help="Optional SKU scope list")
+@click.option("--my-cargo", "my_cargo", default=None, help="Optional My Cargo import-cost file")
 @click.option("--period", type=int, default=None, help="Override run.period_days (30/60/90/...)")
 @click.option("--method", type=click.Choice(sorted(costing_methods())), default=None,
               help="Override costing.method")
@@ -112,7 +113,7 @@ def cli() -> None:
 @click.option("--default-markup", type=float, default=None, help="Override markup.default_pct")
 @click.option("--out", default=None, help="Explicit output .xlsx path")
 @click.option("--dry-run", is_flag=True, help="Compute and summarise without writing the workbook")
-def run_cmd(config_path, mapping_path, gr2, w10, markup_path, sale_list, period, method,
+def run_cmd(config_path, mapping_path, gr2, w10, markup_path, sale_list, my_cargo, period, method,
             as_of, rounding, step, default_markup, out, dry_run):
     """Cost the GR2 receipts, apply markup, and write the Excel workbook."""
     overrides = {
@@ -135,7 +136,7 @@ def run_cmd(config_path, mapping_path, gr2, w10, markup_path, sale_list, period,
     _setup_logging(cfg.log_level, cfg.log_file, cfg.root)
 
     try:
-        result = run_pipeline(cfg, gr2, w10, markup_path, sale_list)
+        result = run_pipeline(cfg, gr2, w10, markup_path, sale_list, my_cargo)
     except (FileNotFoundError, ValueError) as exc:
         raise click.ClickException(str(exc)) from None
 
@@ -324,7 +325,8 @@ def update_cmd(config_path, mapping_path, period, method, as_of, keep_history):
 
     try:
         result = run_pipeline(
-            cfg, paths["gr2"], paths["w10"], paths["markup_list"], paths["sale_list"]
+            cfg, paths["gr2"], paths["w10"], paths["markup_list"],
+            paths["sale_list"], paths["my_cargo"],
         )
     except (FileNotFoundError, ValueError) as exc:
         raise click.ClickException(str(exc)) from None

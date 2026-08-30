@@ -91,6 +91,26 @@ def filter_window(gr2: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
     return df
 
 
+def _audit_row(sku: str, row: pd.Series, used: bool) -> dict:
+    return {
+        "sku": sku,
+        "receipt_date": row["receipt_date"],
+        "receipt_no": row.get("receipt_no"),
+        "supplier": row.get("supplier"),
+        "warehouse": row.get("warehouse"),
+        "qty": row["qty"],
+        "unit_recorded": row.get("uom_as_recorded", row.get("uom")),
+        "unit_costed_as": row.get("uom"),
+        "unit_coefficient": row.get("unit_coefficient"),
+        "unit_cost": row["unit_cost"],
+        "freight": row.get("freight", 0),
+        "duty": row.get("duty", 0),
+        "other_landed": row.get("other_landed", 0),
+        "effective_cost": row["effective_cost"],
+        "used_in_costing": used,
+    }
+
+
 def _drop_outliers(layers: pd.DataFrame, opts: dict) -> tuple[pd.DataFrame, int]:
     if not opts.get("enabled") or opts.get("method", "iqr") == "none":
         return layers, 0
@@ -124,12 +144,18 @@ def cost_skus(
     cfg: AppConfig,
     coefficients: dict[tuple[str, str], float] | None = None,
     unit_remap: dict[str, str] | None = None,
+    routes: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return ``(cost_table, audit_table)`` — one row per SKU, plus the layer trail.
 
     When ``coefficients`` is supplied the resulting ``unit_cost`` is per BASE
     unit; the caller scales it to whichever unit the item is sold in. Without
     them, costs stay in whatever unit each line was received in.
+
+    With ``routes`` and ``warehouse_routing.enabled``, each SKU is costed only
+    from its home warehouse (else the other head-office warehouse); storefront
+    lines never count, and import SKUs are skipped here and costed from the
+    My Cargo file by the caller.
     """
     df = filter_window(gr2, cfg)
     df["effective_cost"] = effective_cost(df, cfg.cost_basis)
@@ -142,14 +168,49 @@ def cost_skus(
         if before != len(df):
             log.info("Dropped %d non-positive GR line(s)", before - len(df))
 
+    routing_on = cfg.wh_routing_enabled and routes is not None and "warehouse" in df.columns
+    route_by_sku = {r.sku: r for r in routes.itertuples()} if routes is not None else {}
+    head_office = {cfg.wh("main_warehouse"), cfg.wh("central_kitchen_warehouse")}
+    if routing_on:
+        storefront = ~df["warehouse"].isin(head_office)
+        if storefront.any():
+            log.info(
+                "Warehouse routing: %d storefront GR line(s) excluded from costing",
+                int(storefront.sum()),
+            )
+
     primary = get_method(cfg.method)
     fallback = get_method(cfg.fallback_method) if cfg.fallback_method else None
 
     results: list[CostResult] = []
     audit_rows: list[dict] = []
 
-    for sku, layers in df.groupby("sku", sort=False):
-        layers = layers.sort_values("receipt_date")
+    for sku, group in df.groupby("sku", sort=False):
+        group = group.sort_values("receipt_date")
+        r = route_by_sku.get(sku)
+        if r is not None and getattr(r, "is_import", False):
+            continue  # costed from the My Cargo file by the caller
+
+        layers, cost_source = group, "receipt"
+        if routing_on and r is not None and r.home_warehouse:
+            home = group[group["warehouse"] == r.home_warehouse]
+            other = group[group["warehouse"].isin(head_office)]
+            if not home.empty:
+                layers = home
+            elif not other.empty:
+                layers, cost_source = other, "other_wh"
+            else:
+                layers = group.iloc[0:0]  # only storefront receipts — no usable cost
+
+        if layers.empty:
+            results.append(
+                CostResult(sku, None, cfg.method, cost_source="none",
+                           note="no receipt in a head-office warehouse")
+            )
+            for _, row in group.iterrows():
+                audit_rows.append(_audit_row(sku, row, used=False))
+            continue
+
         clean, dropped = _drop_outliers(layers, cfg.outlier)
 
         try:
@@ -175,28 +236,13 @@ def cost_skus(
                 max_cost=float(clean["effective_cost"].max()),
                 outliers_dropped=dropped,
                 note=note,
+                cost_source=cost_source,
             )
         )
 
-        for _, row in layers.iterrows():
-            audit_rows.append(
-                {
-                    "sku": sku,
-                    "receipt_date": row["receipt_date"],
-                    "receipt_no": row.get("receipt_no"),
-                    "supplier": row.get("supplier"),
-                    "qty": row["qty"],
-                    "unit_recorded": row.get("uom_as_recorded", row.get("uom")),
-                    "unit_costed_as": row.get("uom"),
-                    "unit_coefficient": row.get("unit_coefficient"),
-                    "unit_cost": row["unit_cost"],
-                    "freight": row.get("freight", 0),
-                    "duty": row.get("duty", 0),
-                    "other_landed": row.get("other_landed", 0),
-                    "effective_cost": row["effective_cost"],
-                    "used_in_costing": row.name in set(clean.index),
-                }
-            )
+        used = set(clean.index)
+        for _, row in group.iterrows():
+            audit_rows.append(_audit_row(sku, row, used=row.name in used))
 
     cost_table = pd.DataFrame([r.as_row() for r in results])
     audit = pd.DataFrame(audit_rows)

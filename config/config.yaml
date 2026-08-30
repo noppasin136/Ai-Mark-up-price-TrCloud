@@ -143,6 +143,32 @@ guardrails:
   min_change_pct: 0.5
 
 
+warehouse_routing:
+  # >>> WAREHOUSE ROUTING <<<  Cost each SKU from the warehouse it is actually
+  # sold from, price imports on landed cost. Full spec: docs/COSTING_MODEL.md.
+  # Turn OFF to fall back to the old behaviour (cost from every receipt line).
+  enabled: true
+
+  # GR2 warehouse codes for the two head-office locations. Everything else is a
+  # storefront and is never used for costing.
+  main_warehouse: ST0001              # WH / Chilled / Freeze categories
+  central_kitchen_warehouse: ST0002   # CK / Central Kitchen categories
+
+  # markup_list Category values that mean "Central Kitchen" (25% cost-plus).
+  central_kitchen_categories: [CK, "Central Kitchen"]
+
+  # A SKU bought mostly from this supplier is priced as Central Kitchen even if
+  # its Category says otherwise. Substring match, case-insensitive.
+  z_smart_supplier_match: "แซด สมาร์ท"
+  z_smart_needs_majority: true        # only if it is the majority of receipts by qty
+
+  # Expected markup by Category, for the MARKUP_RATE_MISMATCH review flag. The
+  # markup_list Markup column stays the source of truth; this only audits it.
+  category_rate_pct: {WH: 12.0, Chilled: 15.0, Freeze: 20.0, CK: 25.0, "Central Kitchen": 25.0}
+  import_rate_pct: 25.0               # My Cargo imports
+  rate_mismatch_tolerance_pct: 0.5
+
+
 output:
   directory: data/output
   # Placeholders: {method} {period} {timestamp} {as_of}

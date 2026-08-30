@@ -33,6 +33,7 @@ def _run(**overrides):
         SAMPLES / "W10_sample.xlsx",
         SAMPLES / "markup_list_sample.xlsx",
         SAMPLES / "sale_list_sample.xlsx",
+        SAMPLES / "My_Cargo_sample.xlsx",
     )
 
 

@@ -86,10 +86,18 @@ def test_price_below_cost_blocks(cfg):
 
 def test_guardrail_breaches_reach_the_upload_sheet():
     _, result = _run()
-    breached = result.detail[result.detail["flag_codes"].str.contains("OVER_MAX", na=False)]
+    d = result.detail
+    breached = d[d["flag_codes"].str.contains("OVER_MAX", na=False)]
     assert not breached.empty, "sample data should contain at least one guardrail breach"
-    assert not breached["blocked"].any()
-    assert set(breached["sku"]) <= set(result.upload["SKU"])
+
+    # a guardrail breach on its own does not block — only an independent hard
+    # flag (e.g. a unit mismatch) does.
+    soft_only = breached[~breached["flag_codes"].apply(
+        lambda fc: bool({c.strip() for c in fc.split(",")} & BLOCKING)
+    )]
+    assert not soft_only.empty
+    assert not soft_only["blocked"].any()
+    assert set(soft_only["sku"]) <= set(result.upload["SKU"])
 
 
 def test_exceptions_sheet_shows_which_rows_still_shipped():
