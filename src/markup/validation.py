@@ -43,6 +43,10 @@ FLAG_CATALOG: dict[str, tuple[str, str]] = {
     "UNIT_EXCLUDED": ("Excluded by a decision in config/unit_review.xlsx", HARD),
     "UNIT_CORRECTED": ("Receipt unit re-read under an approved correction", SOFT),
     "UNKNOWN_SALE_UNIT": ("Sale unit is not listed for this SKU in W10", HARD),
+    "MYCARGO_UNIT_MISMATCH": (
+        "My Cargo quotes this SKU in a unit that is not its W10 base unit "
+        "— fix the file's 'unit' column", HARD,
+    ),
 }
 
 BLOCKING = {code for code, (_, tier) in FLAG_CATALOG.items() if tier == HARD}

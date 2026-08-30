@@ -166,6 +166,88 @@ def load_markup_list(path: str | Path, mapping: dict, value_scale: float = 1.0) 
     return df.reset_index(drop=True)
 
 
+def load_my_cargo(path: str | Path | None, mapping: dict) -> pd.DataFrame | None:
+    """Import landed cost — one row per imported SKU.
+
+    ``landed_cost`` = ``product_cost`` + ``oversea_transport`` (+ ``vat`` +
+    ``inland_transport`` if those columns are ever filled), already per base
+    unit. Rows with no cost but a ``manual_price`` are kept: the pricing step
+    holds those SKUs at their current price rather than re-marking them up.
+
+    The tab is renamed every upload, so ``my_cargo.sheet`` in the mapping is 0 —
+    the first sheet is always read.
+    """
+    if not path:
+        return None
+    df = _load(path, "my_cargo", mapping)
+
+    for col in ("oversea_transport", "vat", "inland_transport"):
+        if col not in df.columns:
+            df[col] = 0.0
+    if "manual_price" not in df.columns:
+        df["manual_price"] = pd.NA
+
+    df["landed_cost"] = (
+        df["product_cost"].fillna(0.0)
+        + df["oversea_transport"].fillna(0.0)
+        + df["vat"].fillna(0.0)
+        + df["inland_transport"].fillna(0.0)
+    )
+    df["has_landed_cost"] = df["product_cost"].notna() & (df["landed_cost"] > 0)
+    df["has_manual_price"] = df["manual_price"].notna() & (df["manual_price"] > 0)
+
+    dupes = sorted(set(df.loc[df["sku"].duplicated(), "sku"]))
+    if dupes:
+        log.warning(
+            "My Cargo: %d SKU(s) on more than one row — keeping the first: %s",
+            len(dupes), ", ".join(dupes),
+        )
+        df = df.drop_duplicates(subset=["sku"], keep="first")
+
+    unusable = df[~df["has_landed_cost"] & ~df["has_manual_price"]]
+    if not unusable.empty:
+        log.warning(
+            "My Cargo: %d row(s) carry neither a cost nor a manual price — ignored: %s",
+            len(unusable), ", ".join(unusable["sku"]),
+        )
+        df = df[df["has_landed_cost"] | df["has_manual_price"]]
+
+    log.info(
+        "My Cargo: %d SKU(s) (%d costed, %d manual-price only)",
+        len(df),
+        int(df["has_landed_cost"].sum()),
+        int((~df["has_landed_cost"] & df["has_manual_price"]).sum()),
+    )
+    return df.reset_index(drop=True)
+
+
+def mycargo_unit_issues(
+    my_cargo: pd.DataFrame | None, w10_base: pd.DataFrame
+) -> pd.DataFrame:
+    """My Cargo rows whose ``unit`` is not the SKU's base unit in W10.
+
+    The landed cost is quoted per base unit; a different unit here (``503-0071``
+    keyed as ``bag`` where the base is ``pack``) would scale the cost wrongly, so
+    the pricing step holds these SKUs back until the file is fixed at source.
+    """
+    cols = ["sku", "my_cargo_unit", "w10_base_unit"]
+    if my_cargo is None or my_cargo.empty or "unit" not in my_cargo.columns:
+        return pd.DataFrame(columns=cols)
+
+    base_unit = {
+        r.sku: str(r.uom).strip().lower() for r in w10_base.itertuples()
+    }
+    rows = []
+    for r in my_cargo.itertuples():
+        got = str(getattr(r, "unit", "") or "").strip()
+        want = base_unit.get(r.sku)
+        if not got or want is None:
+            continue
+        if got.lower() != want:
+            rows.append({"sku": r.sku, "my_cargo_unit": got, "w10_base_unit": want})
+    return pd.DataFrame(rows, columns=cols)
+
+
 def load_sale_list(path: str | Path | None, mapping: dict) -> pd.DataFrame | None:
     """Optional scope list: which SKUs to price, and the unit they sell in."""
     if not path:

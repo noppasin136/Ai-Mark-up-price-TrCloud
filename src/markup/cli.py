@@ -28,7 +28,9 @@ DEFAULT_INPUTS = {
     "w10": "data/input/W10.xlsx",
     "markup_list": "data/input/markup_list.xlsx",
     "sale_list": "data/input/sale_list.xlsx",
+    "my_cargo": "data/input/My Cargo.xlsx",
 }
+OPTIONAL_INPUTS = ("sale_list", "my_cargo")
 INPUT_EXTS = (".xlsx", ".xls", ".xlsm", ".csv")
 
 
@@ -200,13 +202,15 @@ def check_cmd(config_path, mapping_path):
     click.echo(f"\nInput folder: {cfg.resolve('data/input')}\n")
     problems = 0
 
-    for dataset in ("gr2", "w10", "markup_list", "sale_list"):
-        optional = dataset == "sale_list"
+    for dataset in ("gr2", "w10", "markup_list", "sale_list", "my_cargo"):
+        optional = dataset in OPTIONAL_INPUTS
         path = _find_input(cfg, dataset)
         label = f"{dataset:<12}"
 
         if path is None:
-            if optional:
+            if dataset == "my_cargo":
+                click.echo(f"  {label} - not present (optional; imports priced from GR2 instead)")
+            elif optional:
                 click.echo(f"  {label} - not present (optional; all W10 SKUs will be priced)")
             else:
                 click.secho(f"  {label} MISSING  expected {DEFAULT_INPUTS[dataset]}", fg="red")
@@ -239,6 +243,8 @@ def check_cmd(config_path, mapping_path):
             click.secho(f"  {label} UNREADABLE  {exc}", fg="red")
             problems += 1
 
+    _check_my_cargo_units(cfg)
+
     click.echo("")
     if problems:
         click.secho(
@@ -248,6 +254,34 @@ def check_cmd(config_path, mapping_path):
         )
         raise SystemExit(1)
     click.secho("All inputs look good. Run 'markup update' to price them.", fg="green")
+
+
+def _check_my_cargo_units(cfg: AppConfig) -> None:
+    """Warn about My Cargo rows whose unit is not the SKU's base unit in W10.
+
+    Only a heads-up here — pricing (``markup update``) holds those SKUs back
+    with `MYCARGO_UNIT_MISMATCH` until the file is fixed at source.
+    """
+    mc_path, w10_path = _find_input(cfg, "my_cargo"), _find_input(cfg, "w10")
+    if mc_path is None or w10_path is None:
+        return
+    try:
+        from .io import load_my_cargo, load_w10, mycargo_unit_issues
+
+        issues = mycargo_unit_issues(
+            load_my_cargo(mc_path, cfg.mapping), load_w10(w10_path, cfg.mapping)
+        )
+    except Exception:  # noqa: BLE001 — never let this stop a check
+        return
+    if issues.empty:
+        return
+    click.secho(
+        f"\n  my_cargo     {len(issues)} SKU(s) quoted in a unit W10 does not call the "
+        "base unit — fix the 'unit' column in the file:",
+        fg="yellow",
+    )
+    for r in issues.itertuples():
+        click.echo(f"               {r.sku}: file says '{r.my_cargo_unit}', base unit is '{r.w10_base_unit}'")
 
 
 @cli.command("update")

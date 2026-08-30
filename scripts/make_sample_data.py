@@ -28,7 +28,7 @@ UOMS = [("PCS", "BOX", 12), ("PCS", "CTN", 24), ("BTL", "PACK", 6), ("KG", None,
 
 def build():
     today = dt.date.today()
-    gr_rows, w10_rows, sale_rows = [], [], []
+    gr_rows, w10_rows, sale_rows, cargo_rows = [], [], [], []
 
     for i in range(1, 61):
         cat = random.choice(list(CATEGORIES))
@@ -84,6 +84,27 @@ def build():
             "Include": "N" if i % 20 == 0 else "Y",
         })
 
+        # Every 7th SKU is an "import": it gets a My Cargo row where goods cost
+        # roughly matches its receipts but freight is a real slice on top.
+        if i % 7 == 0:
+            goods = round(base_cost, 4)
+            freight = round(base_cost * random.uniform(0.15, 0.6), 4)
+            row = {
+                "code": sku, "name": name, "unit": uom,
+                "ราคา-หน่วยหลัก": goods,
+                "VAT(CARGO)": None,
+                "Oversea Transport+Import duty (Optional)": freight,
+                "Inland Transport (เฉลี่ย)": None,
+                "Sale Price": None,
+            }
+            if i % 21 == 0:                    # one row: manual price, no cost
+                row["ราคา-หน่วยหลัก"] = None
+                row["Oversea Transport+Import duty (Optional)"] = None
+                row["Sale Price"] = current
+            if i % 35 == 0 and par_uom:        # one row: unit ≠ base unit
+                row["unit"] = par_uom
+            cargo_rows.append(row)
+
     # Markup is stored as a FRACTION (0.25 = 25%), matching the real ERP export.
     # config.yaml's markup.value_scale turns it back into a percentage on load.
     markup_rows = [
@@ -104,11 +125,16 @@ def build():
         OUT / "markup_list_sample.xlsx", sheet_name="SellingPrice", index=False)
     pd.DataFrame(sale_rows).to_excel(
         OUT / "sale_list_sample.xlsx", sheet_name="SellingPrice", index=False)
+    # The real file's tab is renamed every upload, so the loader reads the first
+    # sheet regardless of name — the sample uses a deliberately odd one.
+    pd.DataFrame(cargo_rows).to_excel(
+        OUT / "My_Cargo_sample.xlsx", sheet_name="Oct26", index=False)
 
     print(f"Sample data written to {OUT}")
     print(f"  GR2  {len(gr_rows):>4} receipt lines")
     print(f"  W10  {len(w10_rows):>4} unit rows")
     print(f"  Markup rules {len(markup_rows)}")
+    print(f"  My Cargo {len(cargo_rows)} import rows")
 
 
 if __name__ == "__main__":

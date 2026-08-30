@@ -67,3 +67,22 @@ sale_list:                    # Scope — which SKUs to price and in which unit
     current_price:  [Selling Price, ราคาขาย, Sale Price]
     product_name:   [Product Name, ชื่อสินค้า, Item Name]
     include:        [Include, Active, Price Flag]
+
+my_cargo:                     # Import landed cost — one row per imported SKU
+  # The tab is renamed every upload (Seb26, then the next period's name), so the
+  # loader always reads the FIRST sheet regardless of the name here.
+  sheet: 0
+  header_row: 0
+  columns:
+    sku:                [code, Code, รหัสสินค้า, SKU, Item Code]
+    product_name:       [name, Product Name, ชื่อสินค้า]
+    unit:               [unit, Unit, หน่วย]
+    # Goods cost per base unit, before any freight.
+    product_cost:       [ราคา-หน่วยหลัก, ราคาหน่วยหลัก, Product Cost, Unit Cost]
+    # Overseas freight + import duty per base unit.
+    oversea_transport:  [Oversea Transport+Import duty (Optional), Oversea Transport, Freight]
+    # Present but always empty today — summed in if they are ever filled.
+    vat:                [VAT(CARGO), VAT]
+    inland_transport:   [Inland Transport (เฉลี่ย), Inland Transport]
+    # Only set on rows that carry no cost — a manual price to hold at.
+    manual_price:       [Sale Price, ราคาขาย]

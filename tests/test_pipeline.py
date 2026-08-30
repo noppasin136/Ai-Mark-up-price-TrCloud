@@ -16,7 +16,8 @@ SAMPLES = ROOT / "data" / "input" / "samples"
 
 @pytest.fixture(scope="module", autouse=True)
 def samples():
-    if not (SAMPLES / "GR2_sample.xlsx").exists():
+    needed = ("GR2_sample.xlsx", "W10_sample.xlsx", "My_Cargo_sample.xlsx")
+    if not all((SAMPLES / f).exists() for f in needed):
         subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "make_sample_data.py")], check=True
         )
