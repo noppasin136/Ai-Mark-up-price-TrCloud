@@ -123,10 +123,17 @@ parallel_unit:
 
 
 guardrails:
-  # Movement limits vs. the current ERP price from W10. Breaches are flagged,
-  # and — if clamp is true — the price is capped at the limit instead of dropped.
-  max_increase_pct: 25.0
-  max_decrease_pct: 10.0
+  # >>> GUARDRAIL PARAMETERS <<<  How far a suggested price may move away from
+  # the current ERP price in one run, as a percentage.
+  #   A SKU that moves more than this is held OFF the Price Upload sheet and
+  #   listed on Exceptions (unless clamp: true — see below).
+  #   Raise these to let bigger corrections through; lower them to be stricter.
+  max_increase_pct: 25.0     # e.g. 50.0 allows a price to rise up to +50%
+  max_decrease_pct: 25.0     # e.g. 50.0 allows a price to fall up to -50%
+
+  # false -> a breach BLOCKS the SKU (safe default; decide it by hand).
+  # true  -> the price is CAPPED at the limit and still uploaded,
+  #          flagged CLAMPED_UP / CLAMPED_DOWN.
   clamp: false
 
   # Flag any suggested price that lands below the current selling price.

@@ -243,13 +243,28 @@ Set `enabled: false` to price base units only.
 ```yaml
 guardrails:
   max_increase_pct: 25.0
-  max_decrease_pct: 10.0
+  max_decrease_pct: 25.0
   clamp: false
   flag_price_decrease: true
   min_change_pct: 0.5
 ```
 
-Movement limits are measured against the current W10 price.
+Movement limits are measured against the current W10 price, as a percentage.
+A SKU that would move more than the limit in one run is held **off** the Price
+Upload sheet and listed on Exceptions with `OVER_MAX_INCREASE` /
+`OVER_MAX_DECREASE`.
+
+**To loosen or tighten the limits**, edit these two numbers in
+`config/config.yaml` (they sit under the `>>> GUARDRAIL PARAMETERS <<<` banner,
+in the same file as every other setting), then re-run `markup update`:
+
+- **Raise** them to let bigger corrections through — fewer SKUs held back, but a
+  larger single-run price swing reaches the ERP.
+- **Lower** them to be stricter — more SKUs land on Exceptions for a manual look.
+- They are independent: you can allow a large drop while keeping rises tight.
+
+There is no command-line flag for these — they are `config.yaml` only, so a
+change is deliberate and stays the team's baseline until edited back.
 
 - `clamp: false` — a breach **blocks** the row; it appears on Exceptions and is
   kept off the upload sheet. Safer, and the default.
