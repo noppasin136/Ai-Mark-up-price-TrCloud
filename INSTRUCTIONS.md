@@ -250,48 +250,52 @@ guardrails:
 ```
 
 Movement limits are measured against the current W10 price, as a percentage.
-A SKU that would move more than the limit in one run is held **off** the Price
-Upload sheet and listed on Exceptions with `OVER_MAX_INCREASE` /
-`OVER_MAX_DECREASE`.
+A SKU that moves more than the limit is flagged `OVER_MAX_INCREASE` /
+`OVER_MAX_DECREASE` and listed on Exceptions — but it **still ships** on the
+Price Upload sheet. The flag is a "look at this", not a block; a big move is
+usually a stale current price catching up, not an error. Nothing is required to
+let it through.
 
 **To loosen or tighten the limits**, edit these two numbers in
 `config/config.yaml` (they sit under the `>>> GUARDRAIL PARAMETERS <<<` banner,
 in the same file as every other setting), then re-run `markup update`:
 
-- **Raise** them to let bigger corrections through — fewer SKUs held back, but a
-  larger single-run price swing reaches the ERP.
-- **Lower** them to be stricter — more SKUs land on Exceptions for a manual look.
-- They are independent: you can allow a large drop while keeping rises tight.
+- **Raise** them and fewer SKUs get the review flag.
+- **Lower** them and more do.
+- They are independent: allow a large drop while keeping rises tight.
 
 There is no command-line flag for these — they are `config.yaml` only, so a
 change is deliberate and stays the team's baseline until edited back.
 
-- `clamp: false` — a breach **blocks** the row; it appears on Exceptions and is
-  kept off the upload sheet. Safer, and the default.
-- `clamp: true` — the price is **capped** at the limit and shipped, flagged
-  `CLAMPED_UP` / `CLAMPED_DOWN`.
+- `clamp: false` (default) — the breaching price ships as calculated, with the
+  review flag.
+- `clamp: true` — the price is instead **capped** at the limit and shipped,
+  flagged `CLAMPED_UP` / `CLAMPED_DOWN`.
 
 `min_change_pct` suppresses trivial moves so you are not republishing the whole
 catalogue over a few satang.
 
 ### Flags you will see on the Exceptions sheet
 
-| Code | Meaning | Blocks upload |
+Two tiers. **Hard** flags keep the row off Price Upload — there is nothing safe
+to send. **Soft** flags stay on Price Upload and only ask for a look.
+
+| Code | Meaning | Tier |
 |---|---|---|
-| `NO_COST` | No goods receipt in the period | yes |
-| `NEGATIVE_MARGIN` | Suggested price is below cost | yes |
-| `BELOW_MIN_MARGIN` | Margin under the floor | yes |
-| `OVER_MAX_INCREASE` | Increase past the guardrail | yes |
-| `OVER_MAX_DECREASE` | Decrease past the guardrail | yes |
-| `MISSING_IN_W10` | In the sale list but not in W10 | yes |
-| `NO_MARKUP_RULE` | Default percentage was used | no |
-| `PRICE_DECREASE` | Lower than the current price | no |
-| `NO_CURRENT_PRICE` | New item, nothing to compare | no |
-| `BELOW_MIN_CHANGE` | Move too small to bother with | no |
-| `UNIT_UNVERIFIED` | Unit conflict not yet decided in the review sheet | yes |
-| `UNIT_EXCLUDED` | Excluded by a decision in the review sheet | yes |
-| `UNKNOWN_SALE_UNIT` | Sale unit is not listed for this SKU in W10 | yes |
-| `UNIT_CORRECTED` | Costed under an approved unit correction | no |
+| `NO_COST` | No goods receipt in the period | hard |
+| `NEGATIVE_MARGIN` | Suggested price is below cost | hard |
+| `BELOW_MIN_MARGIN` | Margin under the floor | hard |
+| `MISSING_IN_W10` | In the sale list but not in W10 | hard |
+| `UNIT_UNVERIFIED` | Unit conflict not yet decided in the review sheet | hard |
+| `UNIT_EXCLUDED` | Excluded by a decision in the review sheet | hard |
+| `UNKNOWN_SALE_UNIT` | Sale unit is not listed for this SKU in W10 | hard |
+| `OVER_MAX_INCREASE` | Increase past the guardrail | soft |
+| `OVER_MAX_DECREASE` | Decrease past the guardrail | soft |
+| `PRICE_DECREASE` | Lower than the current price | soft |
+| `NO_CURRENT_PRICE` | New item, nothing to compare | soft |
+| `NO_MARKUP_RULE` | Default percentage was used | soft |
+| `BELOW_MIN_CHANGE` | Move too small to bother with | soft |
+| `UNIT_CORRECTED` | Costed under an approved unit correction | soft |
 
 ---
 

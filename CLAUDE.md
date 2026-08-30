@@ -85,8 +85,13 @@ work unrenamed.
   changes what is being compared.
 - **Never widen the Price Upload sheet.** It is exactly `SKU · Unit · Sale Price`
   so it can be pasted into the ERP. Extra columns belong on Detail.
-- Blocked rows never reach Price Upload, so an upload is always safe to hand
-  over — but say plainly what was held back and why.
+- Exceptions come in two tiers. **Hard** flags (`NO_COST`, `UNIT_UNVERIFIED`,
+  `NEGATIVE_MARGIN`, `BELOW_MIN_MARGIN`, `UNKNOWN_SALE_UNIT`, `MISSING_IN_W10`,
+  `UNIT_EXCLUDED`) keep the row **off** Price Upload — there is nothing safe to
+  send. **Soft** flags (a guardrail breach, a new item, a price decrease) stay
+  **on** Price Upload and are only listed for a look; silence ships them. So an
+  upload is safe to hand over, but always say what was held back *and* what
+  shipped with a review flag.
 - Parameters live in `config/config.yaml`; `INSTRUCTIONS.md` documents every one.
   Flags like `--period` and `--method` override for a single run.
 

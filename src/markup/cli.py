@@ -154,6 +154,12 @@ def run_cmd(config_path, mapping_path, gr2, w10, markup_path, sale_list, period,
             "Exceptions sheet before uploading.",
             fg="yellow",
         )
+    if result.stats.get("SKUs on upload flagged for review"):
+        click.secho(
+            f"  {result.stats['SKUs on upload flagged for review']} SKU(s) shipped on the "
+            "upload but are listed on Exceptions for review.",
+            fg="yellow",
+        )
 
 
 @cli.command("validate")
@@ -305,6 +311,13 @@ def update_cmd(config_path, mapping_path, period, method, as_of, keep_history):
     if blocked:
         click.secho(
             f"{blocked} SKU(s) held back — check the Exceptions sheet before uploading.",
+            fg="yellow",
+        )
+    review = result.stats.get("SKUs on upload flagged for review", 0)
+    if review:
+        click.secho(
+            f"{review} SKU(s) are on the upload but flagged for review — a big price move "
+            "or a new item. Look at the Exceptions sheet; no action needed to ship them.",
             fg="yellow",
         )
     outstanding = result.stats.get("Unit reviews outstanding", 0)

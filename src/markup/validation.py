@@ -1,8 +1,17 @@
 """Quality control: every reason a suggested price should not go straight to the ERP.
 
-Each check appends a short code to the row's ``flags`` list. Any row carrying a
-blocking flag is excluded from the Price Upload sheet and shown on Exceptions
-with a plain-language reason.
+Each check appends a short code to the row's ``flags`` list. Flags are one of two
+tiers:
+
+* **hard** — the row is excluded from the Price Upload sheet. Something is missing
+  or unsafe (no cost, an unreviewed unit, a price below cost); there is nothing
+  to hand the ERP.
+* **soft** — the row *still ships* on the Price Upload sheet, but is listed on
+  Exceptions for a human to look at. A large price move is the main case: the
+  number is defensible, it just deserves a second pair of eyes. Silence means the
+  price goes.
+
+``FLAG_CATALOG`` records the tier for every code. See docs/COSTING_MODEL.md §8.C.
 """
 
 from __future__ import annotations
@@ -11,29 +20,32 @@ import pandas as pd
 
 from .config import AppConfig
 
-# code -> (human explanation, blocks upload?)
-FLAG_CATALOG: dict[str, tuple[str, bool]] = {
-    "NO_COST": ("No goods receipt in the selected period — cannot compute a cost", True),
-    "NO_MARKUP_RULE": ("No markup rule matched; the default percentage was used", False),
-    "BELOW_MIN_MARGIN": ("Resulting margin is under the configured floor", True),
-    "NEGATIVE_MARGIN": ("Suggested price is below cost", True),
-    "OVER_MAX_INCREASE": ("Increase exceeds the guardrail limit", True),
-    "OVER_MAX_DECREASE": ("Decrease exceeds the guardrail limit", True),
-    "PRICE_DECREASE": ("Suggested price is lower than the current ERP price", False),
-    "NO_CURRENT_PRICE": ("SKU has no current price in W10 — new item", False),
-    "BELOW_MIN_CHANGE": ("Change is too small to be worth republishing", False),
-    "MISSING_IN_W10": ("SKU is in the sale list but absent from W10", True),
-    "BAD_CONVERSION": ("Parallel unit present but conversion factor is missing or 1", False),
+HARD = "hard"
+SOFT = "soft"
+
+# code -> (human explanation, tier)
+FLAG_CATALOG: dict[str, tuple[str, str]] = {
+    "NO_COST": ("No goods receipt in the selected period — cannot compute a cost", HARD),
+    "NO_MARKUP_RULE": ("No markup rule matched; the default percentage was used", SOFT),
+    "BELOW_MIN_MARGIN": ("Resulting margin is under the configured floor", HARD),
+    "NEGATIVE_MARGIN": ("Suggested price is below cost", HARD),
+    "OVER_MAX_INCREASE": ("Increase exceeds the guardrail limit — review, then it ships", SOFT),
+    "OVER_MAX_DECREASE": ("Decrease exceeds the guardrail limit — review, then it ships", SOFT),
+    "PRICE_DECREASE": ("Suggested price is lower than the current ERP price", SOFT),
+    "NO_CURRENT_PRICE": ("SKU has no current price in W10 — new item", SOFT),
+    "BELOW_MIN_CHANGE": ("Change is too small to be worth republishing", SOFT),
+    "MISSING_IN_W10": ("SKU is in the sale list but absent from W10", HARD),
+    "BAD_CONVERSION": ("Parallel unit present but conversion factor is missing or 1", SOFT),
     "UNIT_UNVERIFIED": (
         "Sale unit and receipt unit differ and the conversion has not been reviewed yet "
-        "— decide it in config/unit_review.xlsx", True,
+        "— decide it in config/unit_review.xlsx", HARD,
     ),
-    "UNIT_EXCLUDED": ("Excluded by a decision in config/unit_review.xlsx", True),
-    "UNIT_CORRECTED": ("Receipt unit re-read under an approved correction", False),
-    "UNKNOWN_SALE_UNIT": ("Sale unit is not listed for this SKU in W10", True),
+    "UNIT_EXCLUDED": ("Excluded by a decision in config/unit_review.xlsx", HARD),
+    "UNIT_CORRECTED": ("Receipt unit re-read under an approved correction", SOFT),
+    "UNKNOWN_SALE_UNIT": ("Sale unit is not listed for this SKU in W10", HARD),
 }
 
-BLOCKING = {code for code, (_, blocks) in FLAG_CATALOG.items() if blocks}
+BLOCKING = {code for code, (_, tier) in FLAG_CATALOG.items() if tier == HARD}
 
 
 def apply_guardrails(detail: pd.DataFrame, cfg: AppConfig) -> pd.DataFrame:
@@ -95,14 +107,19 @@ def _clamp(df: pd.DataFrame, cfg: AppConfig) -> None:
         df.at[idx, "flags"] = [f for f in df.at[idx, "flags"] if f != "OVER_MAX_DECREASE"]
         df.at[idx, "flags"].append("CLAMPED_DOWN")
 
-    FLAG_CATALOG.setdefault("CLAMPED_UP", ("Increase capped at the guardrail limit", False))
-    FLAG_CATALOG.setdefault("CLAMPED_DOWN", ("Decrease capped at the guardrail limit", False))
+    FLAG_CATALOG.setdefault("CLAMPED_UP", ("Increase capped at the guardrail limit", SOFT))
+    FLAG_CATALOG.setdefault("CLAMPED_DOWN", ("Decrease capped at the guardrail limit", SOFT))
 
 
 def exceptions_view(detail: pd.DataFrame) -> pd.DataFrame:
-    """Only the rows a human needs to look at."""
+    """Only the rows a human needs to look at.
+
+    ``blocked`` is carried through so the sheet shows which rows were kept off
+    the upload (hard flags) and which still shipped and only want a review
+    (soft flags).
+    """
     cols = [
-        "sku", "product_name", "category", "sale_uom", "unit_cost", "markup_pct",
+        "sku", "product_name", "category", "sale_uom", "blocked", "unit_cost", "markup_pct",
         "markup_source", "current_price", "suggested_price", "change_pct",
         "margin_pct", "flag_codes", "flag_reasons",
     ]

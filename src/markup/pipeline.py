@@ -270,6 +270,11 @@ def _stats(detail, upload, gr2, cfg: AppConfig, started: dt.datetime, decisions=
         "SKUs without cost": int(detail["unit_cost"].isna().sum()),
         "SKUs flagged": int((detail["flag_codes"].astype(bool)).sum()),
         "SKUs blocked from upload": int(detail["blocked"].sum()),
+        "SKUs on upload flagged for review": int(
+            detail.loc[
+                detail["flag_codes"].astype(bool) & ~detail["blocked"], "sku"
+            ].isin(upload["SKU"]).sum()
+        ),
         "Unit reviews outstanding": int((status == "unverified").sum()) if status is not None else 0,
         "Unit corrections applied": (
             sum(1 for d in (decisions or {}).values() if d.decision == unit_review.TREAT_AS)
