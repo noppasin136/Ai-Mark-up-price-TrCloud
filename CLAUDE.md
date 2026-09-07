@@ -12,8 +12,8 @@ Always this order. Each step is a slash command.
 |---|---|
 | `/check` | Are the ERP exports present, and do the columns map? |
 | `/review` | SKUs whose selling unit and receipt unit disagree — needs a human decision |
-| `/update` | Price everything, write the workbook, record the run |
-| `/report` | Summary, category rollup, diff against the previous run |
+| `/update` | Price everything, write the workbook, record the run, refresh `data/output/erp_upload/Updated price.xlsx` |
+| `/report` | Director dashboard + summary, category rollup, diff against the previous run — writes `data/output/Pricing report - <D Mon YYYY>.html` (+ `Report - latest.html`) |
 
 `/markup` runs the whole sequence with judgement. `/setup` builds the
 environment. `/audit` produces a full data-quality report.
@@ -101,7 +101,9 @@ unit ≠ its W10 base unit.
 - **Never re-run `update` to "refresh" a report.** That creates a new run and
   changes what is being compared.
 - **Never widen the Price Upload sheet.** It is exactly `SKU · Unit · Sale Price`
-  so it can be pasted into the ERP. Extra columns belong on Detail.
+  so it can be pasted into the ERP. Extra columns belong on Detail, or on the
+  separate `data/output/erp_upload/Updated price.xlsx` review sheet that
+  `/update` builds (`scripts/build_erp_upload.py`) — never on Price Upload.
 - Exceptions come in two tiers. **Hard** flags (`NO_COST`, `UNIT_UNVERIFIED`,
   `NEGATIVE_MARGIN`, `BELOW_MIN_MARGIN`, `UNKNOWN_SALE_UNIT`, `MISSING_IN_W10`,
   `UNIT_EXCLUDED`, `MYCARGO_UNIT_MISMATCH`, `PRICE_HELD`) keep the row **off**
@@ -123,7 +125,9 @@ data/input/    ERP exports (gitignored)
 data/output/   workbooks, reports, run history (gitignored)
 src/markup/    the engine — io/ costing/ rules/ pipeline.py validation.py report/
 tests/         pytest suite
-scripts/       audit_inputs.py, fix_sale_units.py, make_sample_data.py
+scripts/       audit_inputs.py, fix_sale_units.py, fix_markup_list.py,
+               build_erp_upload.py (the Updated price review sheet),
+               make_sample_data.py
 ```
 
 ## Testing

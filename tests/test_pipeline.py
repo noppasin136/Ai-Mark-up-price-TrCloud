@@ -8,7 +8,8 @@ import pytest
 
 from markup.config import AppConfig
 from markup.pipeline import run
-from markup.report import write_workbook
+from markup import analysis
+from markup.report import write_report_html, write_workbook
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = ROOT / "data" / "input" / "samples"
@@ -44,7 +45,8 @@ def test_pipeline_produces_priced_rows():
 
 
 def test_parallel_units_are_priced_from_the_w10_units_table():
-    _, result = _run()
+    # include_parallel_rows defaults to false; this test exercises the mechanic.
+    _, result = _run(**{"output.price_upload.include_parallel_rows": True})
     upload = result.upload
     multi = upload[upload.duplicated("SKU", keep=False)]
     assert not multi.empty, "expected at least one SKU priced in two units"
@@ -93,3 +95,40 @@ def test_workbook_is_written_and_readable(tmp_path):
     wb = openpyxl.load_workbook(path)
     assert cfg.upload_opts.get("sheet_name", "Price Upload") in wb.sheetnames
     assert "Run Summary" in wb.sheetnames
+
+
+def test_report_html_is_written_and_self_contained(tmp_path):
+    cfg, result = _run()
+    views = {
+        "summary": analysis.summary_view(result.detail, result.stats),
+        "movers": analysis.movers_view(result.detail, 25),
+        "category": analysis.category_rollup(result.detail, "category"),
+    }
+    path = write_report_html(
+        views, cfg, tmp_path / "Pricing report - 3 Sep 2026.html",
+        run_id="20260903_1630_001", detail=result.detail, stats=result.stats,
+    )
+    assert path.exists()
+    text = path.read_text(encoding="utf-8")
+    assert text.lstrip().startswith("<!doctype html>")
+    assert "Biggest Movers" in text and "By Category" in text
+    # run id comes from the argument, not the (spaced) filename
+    assert "20260903_1630_001" in text
+    # the director dashboard is rendered ahead of the tables
+    assert "This pricing round" in text and "Full detail" in text
+    assert text.index("This pricing round") < text.index("Full detail")
+    # no external assets — everything inline
+    assert "http://" not in text and "https://" not in text
+    assert "<link" not in text and "<script" not in text
+
+
+def test_report_basename_is_human_readable():
+    from types import SimpleNamespace
+
+    from markup.cli import _report_basename
+
+    run = SimpleNamespace(
+        run_id="20260903_163103_001",
+        manifest={"stats": {"As-of date": "2026-09-03"}},
+    )
+    assert _report_basename(run) == "Pricing report - 3 Sep 2026"

@@ -8,7 +8,9 @@ so the committed config stays the team's agreed baseline while you experiment.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -20,7 +22,7 @@ from .costing import available as costing_methods
 from .io.loaders import _read_any
 from .io.schemas import REQUIRED, SchemaError, resolve_columns
 from .pipeline import run as run_pipeline
-from .report import write_report_workbook, write_workbook
+from .report import write_report_html, write_workbook
 from .rules.rounding import available as rounding_strategies
 
 DEFAULT_INPUTS = {
@@ -377,13 +379,33 @@ def update_cmd(config_path, mapping_path, period, method, as_of, keep_history):
     click.echo("Run 'markup report' for the summary and a comparison with the previous run.")
 
 
+LATEST_REPORT_NAME = "Report - latest.html"
+
+
+def _report_basename(run) -> str:
+    """Human-readable report name, e.g. 'Pricing report - 3 Sep 2026'.
+
+    Uses the run's as-of (pricing) date, falling back to the run id's date.
+    """
+    stats = run.manifest.get("stats", {})
+    raw = str(stats.get("As-of date") or stats.get("Run timestamp") or "")[:10]
+    try:
+        day = dt.date.fromisoformat(raw)
+    except ValueError:
+        try:
+            day = dt.datetime.strptime(run.run_id[:8], "%Y%m%d").date()
+        except ValueError:
+            return f"Pricing report - {run.run_id}"
+    return f"Pricing report - {day.day} {day:%b %Y}"
+
+
 @cli.command("report")
 @click.option("--config", "config_path", default="config/config.yaml", show_default=True)
 @click.option("--mapping", "mapping_path", default="config/column_mapping.yaml", show_default=True)
 @click.option("--against", default=None,
               help="Run id to compare against (default: the run before the latest)")
 @click.option("--top", type=int, default=25, show_default=True, help="How many movers to list")
-@click.option("--out", default=None, help="Explicit output .xlsx path")
+@click.option("--out", default=None, help="Explicit output .html path")
 @click.option("--group-by", default="category", show_default=True,
               help="Column for the rollup: category | subcategory | department | brand")
 def report_cmd(config_path, mapping_path, against, top, out, group_by):
@@ -423,8 +445,16 @@ def report_cmd(config_path, mapping_path, against, top, out, group_by):
         )
         views["comparison"] = comparison
 
-    path = Path(out) if out else cfg.resolve(cfg.out_dir) / f"report_{current.run_id}.xlsx"
-    write_report_workbook(views, cfg, path)
+    html_args = dict(run_id=current.run_id, detail=detail, stats=stats)
+    if out:
+        path = Path(out)
+        write_report_html(views, cfg, path, **html_args)
+    else:
+        out_dir = cfg.resolve(cfg.out_dir)
+        path = write_report_html(
+            views, cfg, out_dir / f"{_report_basename(current)}.html", **html_args
+        )
+        shutil.copyfile(path, out_dir / LATEST_REPORT_NAME)
 
     # -- console digest, so the numbers are readable without opening Excel ----
     click.echo("")
@@ -456,6 +486,8 @@ def report_cmd(config_path, mapping_path, against, top, out, group_by):
 
     click.echo("")
     click.secho(f"Report written: {path}", fg="green")
+    if not out:
+        click.echo(f"           and: {path.with_name(LATEST_REPORT_NAME)}")
 
 
 @cli.command("runs")

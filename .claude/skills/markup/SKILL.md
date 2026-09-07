@@ -36,9 +36,14 @@ through to the update step. Ignore anything you cannot interpret and say so.
    If nothing is pending, say so in a few words and carry on.
 
 4. **Update** — `.\markup.bat update` plus any `--period` / `--method` from
-   `$ARGUMENTS`.
+   `$ARGUMENTS`, then
+   `.venv\Scripts\python.exe scripts/build_erp_upload.py` to refresh
+   `data/output/erp_upload/Updated price.xlsx` (the widened pre-upload review
+   sheet — see the `update` skill).
 
-5. **Report** — `.\markup.bat report`.
+5. **Report** — `.\markup.bat report`. Writes
+   `data/output/Pricing report - <D Mon YYYY>.html` (plus a `Report - latest.html`
+   copy); open in a browser, give that path.
 
 ## What to say at the end
 

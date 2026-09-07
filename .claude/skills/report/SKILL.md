@@ -18,6 +18,20 @@ one before, and where the margin sits by product group.
 .\markup.bat runs                              # list recorded run ids
 ```
 
+Output is a single self-contained HTML page, open in any browser. No Excel
+workbook is produced. Two copies are written to `data/output/`:
+
+- `Pricing report - <D Mon YYYY>.html` — dated by the run's pricing date
+- `Report - latest.html` — a fixed-name copy of the newest report
+
+The page opens with two **director-facing dashboard sections** — "This pricing
+round at a glance" (stat tiles, a plain-English verdict, what is held for a
+decision, where each cost came from) and "Margin & movement by category" (a
+per-category margin bar chart and the margin spread of the whole book) — then a
+"Full detail" heading and the analyst tables. All averages are unweighted
+per-SKU means; the data carries no sales volume. Give the user the dated path in
+the report-back.
+
 If it reports no run history, `/update` has not been run yet — say so and offer
 to run it.
 
@@ -36,7 +50,7 @@ see which groups carry the movement.
 
 ## Interpret, don't transcribe
 
-The workbook already holds the tables; the value here is the reading. Call out:
+The HTML page already holds the tables; the value here is the reading. Call out:
 
 - a category whose average margin sits below the others, or below the floor;
 - movement concentrated in one group rather than spread across the catalogue;

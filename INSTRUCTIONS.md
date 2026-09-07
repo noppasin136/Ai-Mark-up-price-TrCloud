@@ -234,7 +234,10 @@ uglier number.
 larger unit. A SKU with no parallel unit, or a factor of 1, simply gets no
 parallel row.
 
-Set `enabled: false` to price base units only.
+Set `enabled: false` to price base units only. Whether a parallel price reaches
+the **Price Upload** sheet is a separate switch,
+`output.price_upload.include_parallel_rows` (§7), which is off by default — so
+out of the box the upload carries one row per SKU, the `sale_list` unit.
 
 ---
 
@@ -319,7 +322,7 @@ output:
   sheets: [price_upload, detail, exceptions, cost_audit, run_summary]
   price_upload:
     sheet_name: "Price Upload"
-    include_parallel_rows: true
+    include_parallel_rows: false
     only_changed: true
     exclude_exceptions: true
 ```
@@ -328,6 +331,14 @@ Filename placeholders: `{method}` `{period}` `{timestamp}` `{as_of}`.
 
 Drop any sheet you do not want from the `sheets` list. Set `only_changed: false`
 to emit every SKU rather than just the movers.
+
+`include_parallel_rows` controls whether the Price Upload sheet also carries a
+row for each *other* unit W10 lists for a SKU (the pack as well as the bag).
+Default `false`: one row per SKU, the `sale_list` selling unit only. Set it to
+`true` to publish every unit in one run — the extra prices are derived per
+§5 (`parallel_unit`). The Detail sheet always carries one row per SKU (the
+sale unit) regardless. `scripts/build_erp_upload.py` mirrors whatever the upload
+sheet contains.
 
 ---
 
@@ -415,7 +426,12 @@ the rest of the catalogue is usable while you work through them.
    Fix any header spelling it reports in `config/column_mapping.yaml`.
 3. `markup review` — decide any newly flagged units. Usually nothing new.
 4. `markup update` — prices everything and writes the workbook.
-5. `markup report` — summary, category rollup, and a diff against your last run.
+5. `markup report` — a director dashboard (round-at-a-glance tiles and a verdict,
+   margin and movement by category) followed by the analyst tables: summary,
+   category rollup, and a diff against your last run. Written as
+   `data/output/Pricing report - <D Mon YYYY>.html` and a fixed-name
+   `Report - latest.html` copy (open either in a browser). Every average is an
+   unweighted per-SKU mean — the inputs carry no sales volume.
 6. Open **Exceptions** first. Clear or accept each row.
 7. Upload the **Price Upload** sheet to the ERP.
 8. Move this month's exports into `data/input/archive/` so next month starts clean.

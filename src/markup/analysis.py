@@ -132,6 +132,123 @@ def comparison_view(current: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFra
     )
 
 
+_HELD_REASON = {
+    "NO_COST": "No purchase in the window and no standard cost to fall back on",
+    "BELOW_MIN_MARGIN": "Suggested price sits below the minimum-margin floor",
+    "NEGATIVE_MARGIN": "Cost is above the current price — would sell at a loss",
+    "UNIT_UNVERIFIED": "Selling unit vs receipt unit still needs a human decision",
+    "UNKNOWN_SALE_UNIT": "Selling unit is not one W10 recognises for this SKU",
+    "MISSING_IN_W10": "SKU is not in the W10 unit master",
+    "UNIT_EXCLUDED": "Selling unit was excluded in the unit review",
+    "MYCARGO_UNIT_MISMATCH": "My Cargo unit does not match the W10 base unit",
+    "PRICE_HELD": "A person set HOLD in price_review.xlsx",
+}
+
+_COST_SOURCE_LABEL = {
+    "receipt": "Actual purchases (goods receipts)",
+    "mycargo": "My Cargo landed cost (imports)",
+    "w10": "Standard cost (no recent purchase)",
+    "other_wh": "Other head-office warehouse",
+    "manual": "Held at current price",
+}
+
+_MARGIN_BUCKETS = [
+    ("< 5%", -1e9, 5),
+    ("5–10%", 5, 10),
+    ("10–15%", 10, 15),
+    ("15–20%", 15, 20),
+    ("20–30%", 20, 30),
+    ("30%+", 30, 1e9),
+]
+
+
+def dashboard_metrics(detail: pd.DataFrame, stats: dict, group_col: str = "category") -> dict:
+    """Everything the director dashboard needs, as plain numbers and small lists.
+
+    All averages are unweighted per-SKU means — there is no sales volume in the
+    inputs, so this cannot be revenue-weighted. The renderer labels it as such.
+    """
+    priced = detail[detail["suggested_price"].notna()].copy()
+    moved = priced[priced["change_pct"].notna()]
+
+    def _stat(key, default=None):
+        return stats.get(key, default)
+
+    n_priced = int(_stat("SKUs priced", len(priced)) or len(priced))
+    n_scope = int(_stat("SKUs in scope", len(detail)) or len(detail))
+    n_blocked = int(_stat("SKUs blocked from upload", int(detail["blocked"].sum())))
+
+    src = priced["cost_source"].value_counts() if "cost_source" in priced else pd.Series(dtype=int)
+    cost_sources = [
+        (_COST_SOURCE_LABEL.get(k, str(k)), int(v)) for k, v in src.items()
+    ]
+    from_receipts = int(src.get("receipt", 0))
+
+    buckets = []
+    for label, lo, hi in _MARGIN_BUCKETS:
+        n = int(((priced["margin_pct"] >= lo) & (priced["margin_pct"] < hi)).sum())
+        buckets.append((label, n))
+
+    held = []
+    for r in detail[detail["blocked"]].itertuples():
+        codes = [c.strip() for c in str(getattr(r, "flag_codes", "") or "").split(",") if c.strip()]
+        reason = next((_HELD_REASON[c] for c in codes if c in _HELD_REASON), "Held — see Exceptions")
+        cp = getattr(r, "current_price", None)
+        held.append({
+            "sku": r.sku,
+            "product_name": getattr(r, "product_name", ""),
+            "category": getattr(r, group_col, "") or "",
+            "reason": reason,
+            "current_price": None if cp is None or pd.isna(cp) else float(cp),
+        })
+
+    cats = []
+    if group_col in priced.columns:
+        g = priced.copy()
+        g[group_col] = g[group_col].fillna("(unassigned)")
+        for name, grp in g.groupby(group_col):
+            cats.append({
+                "name": str(name),
+                "skus": len(grp),
+                "avg_margin": round(float(grp["margin_pct"].mean(skipna=True)), 1),
+                "avg_change": round(float(grp["change_pct"].mean(skipna=True)), 1),
+                "n_below_10": int((grp["margin_pct"] < 10).sum()),
+                "up": int((grp["change_pct"] > 0).sum()),
+                "down": int((grp["change_pct"] < 0).sum()),
+            })
+        cats.sort(key=lambda c: c["avg_margin"])
+
+    return {
+        "priced": n_priced,
+        "in_scope": n_scope,
+        "blocked": n_blocked,
+        "avg_margin": round(float(priced["margin_pct"].mean(skipna=True)), 1),
+        "median_margin": round(float(priced["margin_pct"].median(skipna=True)), 1),
+        "moving_up": int((moved["change_pct"] > 0).sum()),
+        "moving_down": int((moved["change_pct"] < 0).sum()),
+        "flat": int((moved["change_pct"] == 0).sum()),
+        "advisory": int(_stat("SKUs on upload flagged for review", 0) or 0),
+        "review_holds": int(_stat("Price review holds", 0) or 0),
+        "cost_conf_pct": round(from_receipts / n_priced * 100) if n_priced else 0,
+        "cost_sources": cost_sources,
+        "breach_up": int((moved["change_pct"] > _cfg_max(stats, "up")).sum()),
+        "breach_down": int((moved["change_pct"] < -_cfg_max(stats, "down")).sum()),
+        "margin_buckets": buckets,
+        "held": held,
+        "categories": cats,
+        "currency": _stat("Currency", "THB"),
+        "window": _stat("Costing window", ""),
+    }
+
+
+def _cfg_max(stats: dict, direction: str) -> float:
+    key = "Max increase %" if direction == "up" else "Max decrease %"
+    try:
+        return float(stats.get(key, 25))
+    except (TypeError, ValueError):
+        return 25.0
+
+
 def comparison_summary(comparison: pd.DataFrame, cur_label: str, prev_label: str) -> pd.DataFrame:
     counts = comparison["status"].value_counts().to_dict()
     changed = comparison[comparison["status"] == "changed"]

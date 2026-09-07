@@ -25,7 +25,25 @@ allowed-tools: Bash(./markup.bat *) Bash(markup.bat *) Bash(.venv/Scripts/python
    is a `config/config.yaml` edit. `INSTRUCTIONS.md` documents every parameter.
    Say which key you changed.
 
-3. **Report back in prose.** Lead with SKUs priced, SKUs held back, average
+3. **Build the pre-upload review sheet.**
+
+   ```
+   .venv\Scripts\python.exe scripts/build_erp_upload.py
+   ```
+
+   Reads the workbook just written and produces
+   `data/output/erp_upload/Updated price.xlsx` — the same rows as **Price
+   Upload** (one per SKU, the `sale_list` unit, since
+   `include_parallel_rows` is off by default), widened to five columns:
+   `SKU · Product Name · Sale Unit · W10 Base Unit · Sale Price`. Product Name
+   comes from `sale_list`; **W10 Base Unit** is the `เป็นหน่วยหลัก` flag for that
+   row's unit — `1` = base unit, `0` = parallel/pack unit, blank = W10 does not
+   list that unit. Stable path, overwritten each run. It never touches the Price
+   Upload sheet and records nothing. In the report-back, give its path and the
+   base/parallel/blank split the script prints; a blank flag means the unit
+   could not be matched in W10 and is worth a look before upload.
+
+4. **Report back in prose.** Lead with SKUs priced, SKUs held back, average
    margin, and where the workbook landed. Then only what matters:
 
    - `Unit reviews outstanding` above zero means those SKUs were kept off the
@@ -36,11 +54,11 @@ allowed-tools: Bash(./markup.bat *) Bash(markup.bat *) Bash(.venv/Scripts/python
    - A large blocked count means guardrails caught real price movement.
      Summarise *why* from the Exceptions sheet rather than quoting the number.
 
-4. Point at the **Exceptions** sheet before they upload. Blocked rows never
+5. Point at the **Exceptions** sheet before they upload. Blocked rows never
    reach **Price Upload**, so the upload itself is safe — but those SKUs still
    need a decision.
 
-5. Offer `/report` for the comparison against the previous run.
+6. Offer `/report` for the comparison against the previous run.
 
 ## Notes
 
